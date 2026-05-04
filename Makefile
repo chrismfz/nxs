@@ -48,7 +48,7 @@ GOAMD64 ?= v1
 GOAMD64 := $(strip $(GOAMD64))
 CGO_ENABLED ?= 0
 
-.PHONY: help setup update build run clean git sync-release clean-deb clean-rpm distclean deb
+.PHONY: help setup update build run clean git sync sync-release rpm release clean-deb clean-rpm distclean deb
 
 help: ## Show this help message
 	@echo ""
@@ -79,6 +79,8 @@ git: ## Commit + push with custom message
 	git push
 
 # Sync built packages to remote repository
+sync: sync-release ## Alias for sync-release
+
 sync-release: ## Rsync build artifacts to remote package host
 	@if [ "$(SYNC_ON_RELEASE)" = "1" ]; then \
 		if [ -d build/deb ] || [ -d packaging/rpm/RPMS ]; then \
@@ -151,3 +153,26 @@ deb: build
 	@chmod 0755 "$(PKGROOT)/DEBIAN/postinst" "$(PKGROOT)/DEBIAN/prerm" "$(PKGROOT)/DEBIAN/postrm" 2>/dev/null || true
 	@fakeroot dpkg-deb --build "$(PKGROOT)" "$(OUTDIR)/nxs_$(VERSION)-1_$(ARCH).deb"
 	@echo "📦 Built: $(OUTDIR)/nxs_$(VERSION)-1_$(ARCH).deb"
+
+
+rpm: build ## Build .rpm package
+	@echo "PKGROOT=[$(PKGROOT)] RPMTOP=[$(RPMTOP)] SPECFILE=[$(SPECFILE)]"
+	@test -n "$(PKGROOT)" && test -n "$(RPMTOP)" && test -n "$(SPECFILE)"
+	@rm -rf "$(PKGROOT)"
+	@mkdir -p "$(PKGROOT)/usr/bin" "$(PKGROOT)/lib/systemd/system" "$(PKGROOT)/usr/share/nxs/configs" "$(PKGROOT)/etc/nxs"
+	@install -m0755 "$(BIN)" "$(PKGROOT)/usr/bin/nxs"
+	@install -m0640 "packaging/nxs.service" "$(PKGROOT)/lib/systemd/system/nxs.service"
+	@install -m0640 "$(CONFIG_DIR)/nxs.conf" "$(PKGROOT)/etc/nxs/nxs.conf"
+	@install -m0640 "$(CONFIG_DIR)/nxs.conf.example" "$(PKGROOT)/usr/share/nxs/configs/nxs.conf.example"
+	@mkdir -p "$(RPMTOP)/BUILD" "$(RPMTOP)/BUILDROOT" "$(RPMTOP)/RPMS" "$(RPMTOP)/SOURCES" "$(RPMTOP)/SRPMS"
+	@rpmbuild \
+		--define "_topdir $(abspath $(RPMTOP))" \
+		--define "pkgroot $(abspath $(PKGROOT))" \
+		--define "projectroot $(abspath .)" \
+		--define "version $(RPM_VERSION)" \
+		--define "release $(RPM_RELEASE)" \
+		-bb "$(SPECFILE)"
+	@echo "📦 Built RPM under $(RPMTOP)/RPMS"
+
+release: clean build deb rpm sync-release ## Full release pipeline (build + deb + rpm + sync)
+	@echo "🚀 Release completed for version $(VERSION)"
