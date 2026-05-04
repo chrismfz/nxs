@@ -1,0 +1,14 @@
+[Unit]
+Description=NXS - iNtegrity eXploit Scanner
+After=network.target
+
+[Service]
+Type=simple
+User=nxs
+Group=nxs
+ExecStart=/usr/bin/nxs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

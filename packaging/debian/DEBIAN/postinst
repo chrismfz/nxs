@@ -1,50 +1,27 @@
 #!/bin/sh
 set -e
 
-# ---------------------------------------------------------------------------
-# cfm system user and group
-#
-# The cfm group is used by OpenResty (SSLCollector unix socket, cfm_token.lua).
-# The cfm user is the identity OpenResty workers run under.
-# Both are created here so they exist before the daemon starts on first install
-# and are preserved on upgrade (getent guards make the calls idempotent).
-# ---------------------------------------------------------------------------
-if ! getent group cfm >/dev/null 2>&1; then
-    groupadd --system cfm
+if ! getent group nxs >/dev/null 2>&1; then
+    groupadd --system nxs
 fi
 
-if ! getent passwd cfm >/dev/null 2>&1; then
+if ! getent passwd nxs >/dev/null 2>&1; then
     useradd \
         --system \
-        --gid cfm \
+        --gid nxs \
         --no-create-home \
-        --home-dir /var/lib/cfm \
+        --home-dir /var/lib/nxs \
         --shell /sbin/nologin \
-        --comment "CFM service account" \
-        cfm
+        --comment "NXS service account" \
+        nxs
 fi
 
-# ensure config dir
-[ -d /etc/cfm ] || mkdir -p /etc/cfm
+[ -d /etc/nxs ] || mkdir -p /etc/nxs
 
-# shared Lua token dir (root writable, cfm readable)
-mkdir -p /var/lib/cfm/lua
-chown root:cfm /var/lib/cfm/lua
-chmod 750 /var/lib/cfm/lua
-
-# nginx temp dirs — must be owned by the cfm worker user
-# (default OpenResty paths are root-owned; workers running as cfm can't write them)
-for d in /var/lib/cfm/nginx/client_body_temp /var/lib/cfm/nginx/proxy_temp; do
-    mkdir -p "$d"
-    chown cfm:cfm "$d"
-    chmod 700 "$d"
-done
-
-# systemd reload/enable/start
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable cfm.service || true
-    systemctl restart cfm.service || true
+    systemctl enable nxs.service || true
+    systemctl restart nxs.service || true
 fi
 
 exit 0
