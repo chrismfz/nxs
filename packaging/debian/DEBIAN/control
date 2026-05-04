@@ -1,9 +1,9 @@
-Package: cfm
-Version: 2025.08.31-1
+Package: nxs
+Version: 2026.05.04-1
 Section: admin
 Priority: optional
 Architecture: amd64
-Depends: systemd, ca-certificates, libmaxminddb-dev
+Depends: systemd, ca-certificates
 Maintainer: Christos Panagiotakis <chris@nixpal.com>
-Description: CFM daemon and CLI
- A small firewall/blackhole manager (daemon + CLI).
+Description: NXS daemon and CLI
+ Host integrity/malware scanner (daemon + CLI).
