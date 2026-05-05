@@ -195,37 +195,133 @@ kill -HUP $NXS_PID
 kill -TERM $NXS_PID
 ```
 
-**10. YARA-X (Tier 3) — optional**
+**10. YARA-X (Tier 3) — auto-setup**
 
-`nxs signatures setup` downloads the `yr` binary from the [yara-x releases page](https://github.com/VirusTotal/yara-x/releases) and fetches the [YARA Forge](https://github.com/YARAHQ/yara-forge) core rule bundle automatically.
+`nxs signatures setup` downloads the `yr` binary from [yara-x releases](https://github.com/VirusTotal/yara-x/releases)
+and the [YARA Forge](https://github.com/YARAHQ/yara-forge) core rule bundle in one command.
 
 ```bash
-# Auto-install yr + YARA Forge rules (requires internet, writes to /usr/local/bin/yr + /var/lib/nxs/yara)
-sudo ./bin/nxs -c /etc/nxs/nxs.conf signatures setup
+# After package install (writes yr to /usr/local/bin, rules to /var/lib/nxs/yara)
+sudo nxs signatures setup
 
-# Or for a local test without root:
-mkdir -p /tmp/nxs-test/yr-bin /tmp/nxs-test/yara
+# Without root — point config at writable paths
+mkdir -p /tmp/nxs-test/yara
 
-# Manual: download yr from https://github.com/VirusTotal/yara-x/releases
-# then:
 cat >> /tmp/nxs-test/nxs.conf <<'EOF'
-YARA_ENABLED = 1
-YARA_BINARY = /tmp/nxs-test/yr-bin/yr
+YARA_ENABLED   = 1
+YARA_BINARY    = /usr/local/bin/yr
 YARA_RULES_DIR = /tmp/nxs-test/yara
 EOF
 
-./bin/nxs -c /tmp/nxs-test/nxs.conf signatures status
-./bin/nxs -c /tmp/nxs-test/nxs.conf signatures update   # re-download YARA Forge
+# Download yr manually if no root:
+#   https://github.com/VirusTotal/yara-x/releases → pick yr-*-x86_64-unknown-linux-musl.tar.gz
+#   tar xf yr-*.tar.gz && mv yr /tmp/nxs-test/yr
+# then set YARA_BINARY = /tmp/nxs-test/yr in the config above.
 
+# Download YARA Forge rules into the local dir
+./bin/nxs -c /tmp/nxs-test/nxs.conf signatures update
+
+# Confirm status
+./bin/nxs -c /tmp/nxs-test/nxs.conf signatures status
+# ── yr (yara-x) ──────────────────────────────
+#   binary : /usr/local/bin/yr
+#   version: yr 0.x.x
+# ── YARA rules ───────────────────────────────
+#   dir    : /tmp/nxs-test/yara
+#   files  : 312 .yar files
+
+# Scan with all three tiers active
 ./bin/nxs -c /tmp/nxs-test/nxs.conf scan /tmp/nxs-scan
+
+# Findings from YARA Forge rules show kind=malware, source=yara-x
+./bin/nxs -c /tmp/nxs-test/nxs.conf findings --severity high --json | \
+  jq 'select(.Source=="yara-x") | {rule:.Evidence.rule, path:.Path, sev:.Severity}'
 ```
 
-**Installed packages** — `nxs signatures setup` works after `rpm -i` / `dpkg -i`:
+---
+
+## YARA Forge
+
+[YARA Forge](https://github.com/YARAHQ/yara-forge) aggregates curated rules from public threat intelligence repos
+(Elastic, Florian Roth, MalwareBazaar, and others) into pre-built packages.
+
+NXS uses the **core** package — high-confidence, low-FP rules suitable for automated scanning.
+
+### Rule packages
+
+| Package | Size | Use case |
+|---------|------|----------|
+| `core`  | ~300 rules | Default — high confidence, automated scanning |
+| `full`  | ~3000+ rules | Manual review — includes research/experimental rules |
+
+`nxs signatures setup|update` always fetches the `core` package.  
+To use `full`, download it manually from the YARA Forge releases page and point `YARA_RULES_DIR` at it.
+
+### Updating rules
 
 ```bash
-nxs signatures setup     # downloads yr + YARA Forge → /var/lib/nxs/yara
-nxs signatures status    # confirm setup
-nxs signatures update    # refresh rules (run from cron weekly)
+# On demand
+nxs signatures update
+
+# Weekly cron (root) — keeps rules fresh without manual intervention
+echo "0 3 * * 0  root  /usr/bin/nxs signatures update" > /etc/cron.d/nxs-yara
+```
+
+### Writing your own rules
+
+Drop any `.yar` file into `YARA_RULES_DIR`. NXS passes the entire directory to `yr scan`, so new files are picked up automatically on the next scan. Reload the engine without restarting the daemon:
+
+```bash
+kill -HUP $(pidof nxs)     # triggers SIGHUP → engine reload
+```
+
+**Rule metadata NXS reads:**
+
+| Key | Effect |
+|-----|--------|
+| `severity` | Maps to NXS severity (critical/high/medium/low/info); default: high |
+| `threat_level` | Alternative severity key (1–5 or word) |
+| `description` | Used as the finding message |
+| `desc` | Fallback for `description` |
+
+Example rule compatible with NXS severity mapping:
+
+```yara
+rule php_eval_webshell {
+    meta:
+        description = "PHP webshell using eval+base64"
+        severity    = "high"
+        author      = "local"
+    strings:
+        $a = "eval(base64_decode(" ascii
+        $b = "eval(gzinflate(" ascii
+    condition:
+        any of them
+}
+```
+
+Place it in `YARA_RULES_DIR`, then:
+
+```bash
+# Test rule against a single file before deploying
+yr scan /tmp/nxs-test/yara /tmp/nxs-scan/shell.php
+
+# Or via nxs (logs finding to findings.jsonl)
+./bin/nxs -c /tmp/nxs-test/nxs.conf scan /tmp/nxs-scan/shell.php
+./bin/nxs -c /tmp/nxs-test/nxs.conf findings --since 1m --json | jq .
+```
+
+### Excluding noisy YARA Forge rules
+
+If a YARA Forge rule produces false positives on a legitimate file:
+
+```bash
+# Suppress by path
+nxs exclusions add path /home/user/legitimate_script.php
+
+# Or remove the specific .yar file from the rules dir and reload
+rm /var/lib/nxs/yara/noisy_rule.yar
+kill -HUP $(pidof nxs)
 ```
 
 ---
