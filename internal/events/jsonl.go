@@ -24,10 +24,6 @@ func NewJSONLWriter(path string) (*JSONLWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("findings log locked by another process: %w", err)
-	}
 	return &JSONLWriter{path: path, f: f, w: bufio.NewWriter(f)}, nil
 }
 
@@ -37,16 +33,23 @@ func (jw *JSONLWriter) Write(f *Finding) error {
 	if err != nil {
 		return err
 	}
+	// Acquire exclusive lock only for the duration of this write so multiple
+	// processes (daemon + CLI scan) can share the log file safely.
+	if err := syscall.Flock(int(jw.f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("findings log flock: %w", err)
+	}
 	jw.w.Write(b)
 	jw.w.WriteByte('\n')
-	if err := jw.w.Flush(); err != nil {
-		return err
+	flushErr := jw.w.Flush()
+	syncErr := jw.f.Sync()
+	_ = syscall.Flock(int(jw.f.Fd()), syscall.LOCK_UN)
+	if flushErr != nil {
+		return flushErr
 	}
-	return jw.f.Sync()
+	return syncErr
 }
 
 func (jw *JSONLWriter) Close() error {
-	_ = syscall.Flock(int(jw.f.Fd()), syscall.LOCK_UN)
 	return jw.f.Close()
 }
 

@@ -119,34 +119,38 @@ type ghAsset struct {
 }
 
 func findYARAXAsset() (name, url string, err error) {
-	goos := runtime.GOOS     // "linux", "darwin", "windows"
-	goarch := runtime.GOARCH // "amd64", "arm64"
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
 
-	// yara-x release asset names follow the pattern:
+	// yara-x release asset names (as of v1.x):
+	//   yara-x-v1.x.x-x86_64-unknown-linux-gnu.gz   (tar inside, not plain gz)
+	//   yara-x-v1.x.x-aarch64-unknown-linux-gnu.gz
+	//   yara-x-v1.x.x-x86_64-apple-darwin.gz
+	//   yara-x-v1.x.x-x86_64-pc-windows-msvc.zip
+	// Older yr-only releases used:
 	//   yr-v0.x.x-x86_64-unknown-linux-musl.tar.gz
-	//   yr-v0.x.x-aarch64-unknown-linux-musl.tar.gz
-	//   yr-v0.x.x-x86_64-apple-darwin.tar.gz
-	//   yr-v0.x.x-x86_64-pc-windows-msvc.zip
+	// We accept both patterns.
 	archMap := map[string]string{
 		"amd64": "x86_64",
 		"arm64": "aarch64",
 		"386":   "i686",
 	}
-	osMap := map[string]string{
-		"linux":   "unknown-linux-musl",
-		"darwin":  "apple-darwin",
-		"windows": "pc-windows-msvc",
+	// Preference order: gnu first (modern releases), musl fallback.
+	linuxTargets := []string{"unknown-linux-gnu", "unknown-linux-musl"}
+	osTargets := map[string][]string{
+		"linux":   linuxTargets,
+		"darwin":  {"apple-darwin"},
+		"windows": {"pc-windows-msvc"},
 	}
 
 	rustArch, ok := archMap[goarch]
 	if !ok {
 		return "", "", fmt.Errorf("unsupported arch: %s", goarch)
 	}
-	rustOS, ok := osMap[goos]
+	targets, ok := osTargets[goos]
 	if !ok {
 		return "", "", fmt.Errorf("unsupported OS: %s", goos)
 	}
-	target := rustArch + "-" + rustOS
 
 	req, _ := http.NewRequest("GET", yaraxReleasesAPI, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -167,12 +171,21 @@ func findYARAXAsset() (name, url string, err error) {
 		return "", "", err
 	}
 
-	for _, a := range rel.Assets {
-		if strings.Contains(a.Name, target) && (strings.HasSuffix(a.Name, ".tar.gz") || strings.HasSuffix(a.Name, ".zip")) {
-			return a.Name, a.BrowserDownloadURL, nil
+	isArchive := func(n string) bool {
+		return strings.HasSuffix(n, ".tar.gz") ||
+			strings.HasSuffix(n, ".zip") ||
+			strings.HasSuffix(n, ".gz") // yara-x v1.x ships .gz tarballs
+	}
+
+	for _, osTarget := range targets {
+		needle := rustArch + "-" + osTarget
+		for _, a := range rel.Assets {
+			if strings.Contains(a.Name, needle) && isArchive(a.Name) {
+				return a.Name, a.BrowserDownloadURL, nil
+			}
 		}
 	}
-	return "", "", fmt.Errorf("no yara-x asset found for %s/%s (target=%s)", goos, goarch, target)
+	return "", "", fmt.Errorf("no yara-x asset found for %s/%s", goos, goarch)
 }
 
 // ─── Download helper ──────────────────────────────────────────────────────────
@@ -192,12 +205,13 @@ func downloadTo(url string, dst *os.File) error {
 
 // ─── Archive extraction ───────────────────────────────────────────────────────
 
-// extractBinary finds `binaryName` inside a .tar.gz or .zip archive and writes
-// it to a temp file, returning the temp file path.
+// extractBinary finds `binaryName` inside a .tar.gz, .gz (tar-in-gzip), or .zip
+// archive and writes it to a temp file, returning the temp file path.
 func extractBinary(archivePath, binaryName, assetName string) (string, error) {
 	if strings.HasSuffix(assetName, ".zip") {
 		return extractBinaryFromZip(archivePath, binaryName)
 	}
+	// Both .tar.gz and bare .gz from yara-x releases are gzip-wrapped tars.
 	return extractBinaryFromTarGz(archivePath, binaryName)
 }
 
@@ -266,7 +280,8 @@ func writeTmp(r io.Reader, name string) (string, error) {
 	return tmp.Name(), nil
 }
 
-// extractYARAForgeZip extracts all .yar files from the YARA Forge zip into dir.
+// extractYARAForgeZip extracts all .yar files from the YARA Forge zip into dir,
+// recursing into any subdirectory structure within the zip.
 func extractYARAForgeZip(zipPath, dir string) (int, error) {
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -274,16 +289,17 @@ func extractYARAForgeZip(zipPath, dir string) (int, error) {
 	}
 	defer zr.Close()
 
+	dirClean := filepath.Clean(dir) + string(os.PathSeparator)
 	count := 0
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() || !strings.HasSuffix(f.Name, ".yar") {
 			continue
 		}
 
+		// Flatten: all .yar files land directly in dir regardless of zip subdir.
 		destPath := filepath.Join(dir, filepath.Base(f.Name))
-		// Prevent zip-slip
-		if !strings.HasPrefix(filepath.Clean(destPath), filepath.Clean(dir)+string(os.PathSeparator)) {
-			continue
+		if !strings.HasPrefix(filepath.Clean(destPath)+string(os.PathSeparator), dirClean) {
+			continue // zip-slip guard
 		}
 
 		rc, err := f.Open()
