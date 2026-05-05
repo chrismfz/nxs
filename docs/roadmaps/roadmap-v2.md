@@ -1390,32 +1390,111 @@ Feature 10 — PAM remains deferred
 12. Database scanner
 ```
 
-## First session checklist
+## Beta session checklist
 
 ```text
-[ ] go mod init github.com/chrismfz/nxs
-[ ] add github.com/cloudflare/ahocorasick
-[ ] add golang.org/x/sys
-[ ] add MySQL driver later, only when DB scanner starts
-[ ] create cmd/nxs/main.go
-[ ] create internal/config
-[ ] create internal/logging
-[ ] create configs/nxs.conf.example
-[ ] create Makefile
-[ ] create packaging/rpm and packaging/debian stubs
+Project skeleton:
+[x] go mod init github.com/chrismfz/nxs
+[x] add github.com/cloudflare/ahocorasick
+[ ] add golang.org/x/sys              (removed; stdlib syscall used instead)
+[ ] add MySQL driver                   (deferred — DB scanner not started)
+[x] create cmd/nxs/main.go
+[x] create internal/config
+[x] create internal/logging
+[x] create configs/nxs.conf.example
+[x] create configs/nxs.conf
+[x] create configs/hashdb.csv          (header-only; operators populate)
+[x] create configs/signatures/         (empty dir; operators populate)
+[x] create Makefile                    (aligned with CFM: stage-pkgroot, stage-rpm,
+                                        rpm_prep_dirs, rpm_spec_version, sync, release)
+[x] create packaging/rpm/SPECS/nxs.spec
+[x] create packaging/debian/DEBIAN/
+[x] create packaging/nxs.service       (ExecStart=nxs daemon, journal output)
+[x] create LICENSE                     (MIT)
+[x] create docs/roadmaps/roadmap-v2.md
 
-Feature 0:
-[ ] internal/events/event.go
-[ ] internal/events/jsonl.go
-[ ] internal/events/state.go
-[ ] internal/events/severity.go
-[ ] internal/events/samples.go
-[ ] internal/events/redact.go
-[ ] internal/exclusions/
-[ ] internal/maintenance/
-[ ] nxs findings CLI
-[ ] nxs exclusions CLI
-[ ] nxs maintenance CLI
+Feature 0 — Finding/Event Framework:
+[x] internal/events/event.go           (Finding, Sample, Diff structs; NewFinding)
+[x] internal/events/jsonl.go           (JSONLWriter, flock, ReadFiltered)
+[x] internal/events/state.go           (StateStore, atomic rename flush)
+[x] internal/events/severity.go        (SeverityRank, MeetsSeverity)
+[x] internal/events/samples.go         (ExtractSamples — byte windows at match offset)
+[x] internal/events/redact.go          (RedactFinding, URL defang)
+[x] internal/exclusions/               (ExclusionSet, path/prefix/glob/hash/regex match,
+                                        Add/Remove/List, atomic rename)
+[x] internal/maintenance/              (Schedule, InMaintenance, AddWindow/RemoveWindow)
+[x] nxs findings CLI                   (--since, --severity, --limit, --json)
+[x] nxs exclusions CLI                 (list / add --type --value --reason / remove)
+[x] nxs maintenance CLI                (list / add --ttl / remove)
+
+Feature 1 — Native Scan Engine:
+[x] internal/engine/loader.go          (HashIndex from CSV, MD5+SHA256, O(1) lookup)
+[x] internal/engine/signatures.go      (*.sig loader, BuildACMatcher)
+[x] internal/engine/builder.go         (Engine.ScanFile: hash→AC→YARA tiers;
+                                        Engine.ScanDir: WalkDir goroutine)
+[x] internal/engine/reload.go          (SIGHUP reload of hash DB + sigs + YARA)
+[x] internal/engine/stats.go           (atomic Stats snapshot)
+[x] internal/engine/yara.go            (YARA-X Tier 3 via yr subprocess, NDJSON output,
+                                        graceful fallback when yr absent)
+
+Feature 2 — fanotify Monitor:
+[x] internal/filewatch/monitor.go      (Monitor interface, New factory)
+[x] internal/filewatch/monitor_linux.go (probes fanotify_init; falls back gracefully)
+[x] internal/filewatch/monitor_other.go (non-Linux stub)
+[x] internal/filewatch/watcher.go      (fallbackMonitor — nil channel → periodic scan)
+[x] internal/filewatch/filter.go       (FilterPath: skip /proc /sys /dev)
+[ ] real-time fanotify loop            (deferred post-beta)
+
+Feature 3 — Scanner Pipeline:
+[x] internal/scanner/pipeline.go       (RunScan: maintenance→ScanDir→exclusions→
+                                        state→action→JSONL→notify-eligible)
+[x] internal/scanner/quarantine.go     (chmod/copy/move modes, .nxsmeta.json sidecar, List)
+[x] internal/scanner/action.go         (Decide: critical/high → quarantine)
+[x] internal/scanner/dedup.go          (DedupFindings within a scan run)
+[x] internal/scanner/filter.go         (FilterBySeverity, FilterByPath)
+[x] internal/scanner/periodic.go       (goroutine loop, TriggerNow via channel)
+[x] nxs scan CLI                       (--severity, --json, multi-path)
+[x] nxs quarantine list CLI
+
+Feature 6 — Notify:
+[x] internal/notify/notify.go          (Notifier interface, New factory)
+[x] internal/notify/sendmail.go        (pipes to /usr/sbin/sendmail -t)
+[x] internal/notify/smtp.go            (net/smtp stdlib, STARTTLS/TLS/plain, PLAIN auth)
+[x] internal/notify/slack.go           (net/http POST to incoming webhook, by severity)
+[x] internal/notify/template.go        (shared subject/body/email builder)
+[x] internal/notify/dedupe.go          (NotifyStateStore: per-finding cooldown)
+
+Daemon:
+[x] nxs daemon                         (signal loop: SIGHUP→reload+scan, SIGTERM→shutdown)
+[x] nxs version CLI
+
+Stub packages (directory structure, post-beta):
+[x] internal/cfmclient/               (thin HTTP client to CFM block API)
+[x] internal/clam/                    (clamd connector)
+[x] internal/cleaner/                 (surgical PHP injection cleaner)
+[x] internal/wpintegrity/             (WordPress core/plugin checksum)
+[x] internal/cmsintegrity/            (Joomla/Drupal/Magento/OpenCart)
+[x] internal/dbscanner/               (WordPress DB malware scanner)
+[x] internal/integrity/               (real-time integrity detector)
+[x] internal/runtime/                 (fanotify runtime access monitor)
+
+Still to implement (post-beta):
+[ ] fanotify GroupWeb real-time loop
+[ ] fanotify GroupSystem (integrity events)
+[ ] fanotify GroupRuntime (exec/read monitor)
+[ ] YARA Forge rules download/management
+[ ] clamd connector (internal/clam)
+[ ] surgical PHP cleaner (internal/cleaner)
+[ ] WordPress/CMS integrity (internal/wpintegrity, internal/cmsintegrity)
+[ ] database scanner (internal/dbscanner)
+[ ] real-time integrity detector (internal/integrity)
+[ ] CFM block API client (internal/cfmclient)
+[ ] nxs wp / nxs cms / nxs db CLI
+[ ] nxs integrity CLI
+[ ] nxs runtime CLI
+[ ] nxs signatures CLI (status/reload/check/test)
+[ ] quarantine restore
+[ ] MySQL driver (when DB scanner starts)
 ```
 
 ---
