@@ -70,6 +70,15 @@ install -Dm644 %{projectroot}/LICENSE %{buildroot}/usr/share/licenses/nxs/LICENS
 %dir %{_datadir}/nxs/signatures
 
 %post
+# runtime directories
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs/state
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs/quarantine
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs/yara
+install -d -m 0755            /var/lib/nxs/signatures
+install -d -m 0750 -o nxs -g nxs /var/log/nxs
+install -d -m 0750 -o nxs -g nxs /var/run/nxs
+
 systemctl daemon-reload || true
 systemctl enable nxs.service || true
 systemctl restart nxs.service || true
