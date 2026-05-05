@@ -69,8 +69,15 @@ SIG_DIR = /var/lib/nxs/signatures
 # CSV hash database: algorithm,hash,severity,kind,label
 HASH_DB = /usr/share/nxs/hashdb.csv
 
-# Enable YARA rules (requires go-yara build tag; deferred post-beta)
+# Enable YARA-X tier (uses yr subprocess — no CGO required)
+# Install: https://github.com/VirusTotal/yara-x/releases
+# Rules:   https://yarahq.github.io/ (YARA Forge)
 YARA_ENABLED = 0
+
+# Path to the yr binary (default: yr from PATH)
+#YARA_BINARY = /usr/local/bin/yr
+
+# Directory containing .yar rule files (or a single .yarc compiled rules file)
 #YARA_RULES_DIR = /var/lib/nxs/yara
 
 # Enable clamd connector (optional, fallback-only by default)

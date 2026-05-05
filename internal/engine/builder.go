@@ -18,6 +18,7 @@ type Engine struct {
 	log     *logging.Logger
 	hashIdx *HashIndex
 	ac      *ACMatcher
+	yara    *YARAScanner
 	stats   atomicStats
 	mu      sync.RWMutex
 }
@@ -33,9 +34,10 @@ func New(cfg *config.Config, log *logging.Logger) (*Engine, error) {
 		log.Warn("signature dir load failed — continuing without signatures", "err", err)
 	}
 	ac := BuildACMatcher(sigs)
-	log.Info("engine loaded", "hashes", idx.Len(), "signatures", len(sigs))
+	yara := NewYARAScanner(cfg, log)
+	log.Info("engine loaded", "hashes", idx.Len(), "signatures", len(sigs), "yara", yara.Enabled())
 
-	e := &Engine{cfg: cfg, log: log, hashIdx: idx, ac: ac}
+	e := &Engine{cfg: cfg, log: log, hashIdx: idx, ac: ac, yara: yara}
 	e.stats.reset()
 	return e, nil
 }
@@ -90,6 +92,27 @@ func (e *Engine) ScanFile(path string) ([]*events.Finding, error) {
 	}
 
 	hitIdxs := e.ac.Match(data)
+
+	// Tier 3: YARA-X subprocess scan (runs regardless of Tier 2 result)
+	if e.yara.Enabled() {
+		yaraFindings, err := e.yara.ScanFile(path)
+		if err != nil {
+			e.log.Warn("yara scan error", "path", path, "err", err)
+		}
+		if len(yaraFindings) > 0 {
+			for _, f := range yaraFindings {
+				f.Evidence["md5"] = md5sum
+				f.Evidence["sha256"] = sha256sum
+				e.stats.findingsEmitted.Add(1)
+			}
+			// Return combined: YARA findings take precedence over AC findings
+			// for the same file (both sets are returned).
+			if len(hitIdxs) == 0 {
+				return yaraFindings, nil
+			}
+		}
+	}
+
 	if len(hitIdxs) == 0 {
 		return nil, nil
 	}

@@ -37,9 +37,11 @@ func (e *Engine) reload() error {
 	if err != nil {
 		return err
 	}
+	yara := NewYARAScanner(e.cfg, e.log)
 	e.mu.Lock()
 	e.hashIdx = idx
 	e.ac = BuildACMatcher(sigs)
+	e.yara = yara
 	e.mu.Unlock()
 	return nil
 }
