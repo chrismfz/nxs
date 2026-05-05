@@ -6,9 +6,11 @@ After=network.target
 Type=simple
 User=nxs
 Group=nxs
-ExecStart=/usr/bin/nxs
+ExecStart=/usr/bin/nxs daemon
 Restart=always
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
