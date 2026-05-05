@@ -1,5 +1,5 @@
 Name:           nxs
-Version:        2026.05.04
+Version:        2026.05.05
 Release:        1%{?dist}
 Summary:        iNtegrity eXploit Scanner for Linux hosting servers
 License:        MIT
@@ -12,6 +12,10 @@ Requires(pre): shadow-utils
 
 %description
 NXS is a host security scanner for shared Linux/cPanel hosting servers.
+It covers filesystem malware scanning, fanotify real-time monitoring,
+webshell/dropper detection, quarantine, WordPress/CMS integrity,
+database infection scanning, rootkit/post-exploitation indicators,
+and runtime file access visibility.
 
 %pre
 if ! getent group nxs >/dev/null 2>&1; then
@@ -46,6 +50,7 @@ if [ -d "%{pkgroot}/etc" ]; then
   cp -a "%{pkgroot}/etc" "%{buildroot}/"
 fi
 
+# Normalise systemd unit location: accept both lib/ and usr/lib/ staging paths
 if [ -f "%{buildroot}/lib/systemd/system/nxs.service" ]; then
   mkdir -p "%{buildroot}%{_unitdir}"
   mv "%{buildroot}/lib/systemd/system/nxs.service" "%{buildroot}%{_unitdir}/"
@@ -62,8 +67,18 @@ install -Dm644 %{projectroot}/LICENSE %{buildroot}/usr/share/licenses/nxs/LICENS
 %dir %{_datadir}/nxs
 %dir %{_datadir}/nxs/configs
 %{_datadir}/nxs/configs/*
+%dir %{_datadir}/nxs/signatures
 
 %post
+# runtime directories
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs/state
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs/quarantine
+install -d -m 0750 -o nxs -g nxs /var/lib/nxs/yara
+install -d -m 0755            /var/lib/nxs/signatures
+install -d -m 0750 -o nxs -g nxs /var/log/nxs
+install -d -m 0750 -o nxs -g nxs /var/run/nxs
+
 systemctl daemon-reload || true
 systemctl enable nxs.service || true
 systemctl restart nxs.service || true
@@ -73,3 +88,7 @@ systemctl restart nxs.service || true
 
 %postun
 %systemd_postun_with_restart nxs.service
+
+%changelog
+* Mon May 05 2026 Chris <chris@nixpal.com> - 2026.05.05-1
+- Initial RPM packaging
