@@ -1407,6 +1407,8 @@ Project skeleton:
 [x] create configs/signatures/         (empty dir; operators populate)
 [x] create Makefile                    (aligned with CFM: stage-pkgroot, stage-rpm,
                                         rpm_prep_dirs, rpm_spec_version, sync, release)
+[x] create CLAUDE.md                   (agent documentation rules: roadmap+README update policy,
+                                        design decisions, commit format, testing steps)
 [x] create packaging/rpm/SPECS/nxs.spec
 [x] create packaging/debian/DEBIAN/
 [x] create packaging/nxs.service       (ExecStart=nxs daemon, journal output)
@@ -1482,7 +1484,7 @@ Still to implement (post-beta):
 [ ] fanotify GroupWeb real-time loop
 [ ] fanotify GroupSystem (integrity events)
 [ ] fanotify GroupRuntime (exec/read monitor)
-[ ] YARA Forge rules download/management
+[x] YARA Forge rules download/management     (nxs signatures setup|update — auto-downloads yr + YARA Forge core rules)
 [ ] clamd connector (internal/clam)
 [ ] surgical PHP cleaner (internal/cleaner)
 [ ] WordPress/CMS integrity (internal/wpintegrity, internal/cmsintegrity)
@@ -1492,7 +1494,7 @@ Still to implement (post-beta):
 [ ] nxs wp / nxs cms / nxs db CLI
 [ ] nxs integrity CLI
 [ ] nxs runtime CLI
-[ ] nxs signatures CLI (status/reload/check/test)
+[x] nxs signatures CLI (status/setup/update)  (status shows yr+rules state; setup/update download them)
 [ ] quarantine restore
 [ ] MySQL driver (when DB scanner starts)
 ```

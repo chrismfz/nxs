@@ -197,28 +197,35 @@ kill -TERM $NXS_PID
 
 **10. YARA-X (Tier 3) — optional**
 
-Install [yara-x](https://github.com/VirusTotal/yara-x) and point `YARA_RULES_DIR` at a rules directory:
+`nxs signatures setup` downloads the `yr` binary from the [yara-x releases page](https://github.com/VirusTotal/yara-x/releases) and fetches the [YARA Forge](https://github.com/YARAHQ/yara-forge) core rule bundle automatically.
 
 ```bash
-# Enable in config
-echo "YARA_ENABLED = 1" >> /tmp/nxs-test/nxs.conf
-echo "YARA_BINARY = yr" >> /tmp/nxs-test/nxs.conf
-echo "YARA_RULES_DIR = /tmp/nxs-test/yara" >> /tmp/nxs-test/nxs.conf
+# Auto-install yr + YARA Forge rules (requires internet, writes to /usr/local/bin/yr + /var/lib/nxs/yara)
+sudo ./bin/nxs -c /etc/nxs/nxs.conf signatures setup
 
-mkdir -p /tmp/nxs-test/yara
-cat > /tmp/nxs-test/yara/test.yar <<'EOF'
-rule php_webshell {
-    meta:
-        description = "PHP webshell pattern"
-        severity    = "high"
-    strings:
-        $a = "eval(base64_decode("
-    condition:
-        $a
-}
+# Or for a local test without root:
+mkdir -p /tmp/nxs-test/yr-bin /tmp/nxs-test/yara
+
+# Manual: download yr from https://github.com/VirusTotal/yara-x/releases
+# then:
+cat >> /tmp/nxs-test/nxs.conf <<'EOF'
+YARA_ENABLED = 1
+YARA_BINARY = /tmp/nxs-test/yr-bin/yr
+YARA_RULES_DIR = /tmp/nxs-test/yara
 EOF
 
+./bin/nxs -c /tmp/nxs-test/nxs.conf signatures status
+./bin/nxs -c /tmp/nxs-test/nxs.conf signatures update   # re-download YARA Forge
+
 ./bin/nxs -c /tmp/nxs-test/nxs.conf scan /tmp/nxs-scan
+```
+
+**Installed packages** — `nxs signatures setup` works after `rpm -i` / `dpkg -i`:
+
+```bash
+nxs signatures setup     # downloads yr + YARA Forge → /var/lib/nxs/yara
+nxs signatures status    # confirm setup
+nxs signatures update    # refresh rules (run from cron weekly)
 ```
 
 ---
@@ -232,7 +239,9 @@ nxs findings [--since 24h]        # query findings log
 nxs quarantine list               # list quarantined files
 nxs exclusions list|add|remove    # manage exclusions
 nxs maintenance list|add|remove   # manage maintenance windows
-nxs signatures status|reload      # manage scan signatures
+nxs signatures status             # show yr binary + YARA rules status
+nxs signatures setup              # download yr binary + YARA Forge core rules
+nxs signatures update             # re-download YARA Forge core rules
 nxs wp scan <wp-root>             # WordPress integrity check
 nxs db scan <user>                # database malware scan
 nxs integrity scan                # real-time integrity check

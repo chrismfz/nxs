@@ -20,6 +20,7 @@ import (
 	"github.com/chrismfz/nxs/internal/maintenance"
 	"github.com/chrismfz/nxs/internal/notify"
 	"github.com/chrismfz/nxs/internal/scanner"
+	"github.com/chrismfz/nxs/internal/setup"
 )
 
 var (
@@ -73,6 +74,8 @@ func main() {
 		cmdExclusions(cfg, args[1:])
 	case "maintenance":
 		cmdMaintenance(cfg, args[1:])
+	case "signatures":
+		cmdSignatures(cfg, args[1:])
 	case "version":
 		fmt.Printf("nxs %s (built %s)\n", Version, BuildTime)
 	default:
@@ -438,6 +441,9 @@ Subcommands:
   quarantine list                 List quarantined files
   exclusions list|add|remove      Manage scan exclusions
   maintenance list|add|remove     Manage maintenance windows
+  signatures status               Show yr + YARA rules status
+  signatures setup                Download yr binary + YARA Forge core rules
+  signatures update               Re-download YARA Forge core rules
   version                         Print version
 
 Global flags:
@@ -445,6 +451,89 @@ Global flags:
   --debug               Enable debug logging
   --version             Print version and exit
 `, Version)
+}
+
+// ─── signatures ──────────────────────────────────────────────────────────────
+
+func cmdSignatures(cfg *config.Config, args []string) {
+	sub := "status"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+
+	yaraBin := cfg.Engine.YARABinary
+	if yaraBin == "" {
+		yaraBin = "yr"
+	}
+	yaraRules := cfg.Engine.YARARulesDir
+	if yaraRules == "" {
+		yaraRules = "/var/lib/nxs/yara"
+	}
+
+	progress := func(msg string) { fmt.Println(" ", msg) }
+
+	switch sub {
+	case "status":
+		fmt.Println("── yr (yara-x) ──────────────────────────────")
+		if path, err := setup.LookupYR(yaraBin); err == nil {
+			ver, _ := setup.YARXVersion(path)
+			fmt.Printf("  binary : %s\n", path)
+			fmt.Printf("  version: %s\n", ver)
+		} else {
+			fmt.Printf("  binary : not found (%s)\n", yaraBin)
+			fmt.Println("  hint   : run `nxs signatures setup` to install")
+		}
+		fmt.Println("── YARA rules ───────────────────────────────")
+		n, _ := setup.CountRules(yaraRules)
+		if n > 0 {
+			fmt.Printf("  dir    : %s\n", yaraRules)
+			fmt.Printf("  files  : %d .yar files\n", n)
+		} else {
+			fmt.Printf("  dir    : %s (empty or missing)\n", yaraRules)
+			fmt.Println("  hint   : run `nxs signatures setup` to download YARA Forge rules")
+		}
+
+	case "setup":
+		fmt.Println("Setting up YARA-X and YARA Forge rules...")
+
+		// Determine install path for yr
+		installBin := yaraBin
+		if installBin == "yr" {
+			installBin = "/usr/local/bin/yr"
+		}
+
+		if _, err := setup.LookupYR(yaraBin); err != nil {
+			fmt.Printf("Downloading yr → %s\n", installBin)
+			if err := setup.InstallYARAX(installBin, progress); err != nil {
+				fmt.Fprintf(os.Stderr, "nxs: failed to install yr: %v\n", err)
+				fmt.Fprintf(os.Stderr, "     You can install it manually: https://github.com/VirusTotal/yara-x/releases\n")
+			} else {
+				fmt.Printf("  yr installed: %s\n", installBin)
+			}
+		} else {
+			fmt.Printf("  yr already installed: %s (skipping)\n", yaraBin)
+		}
+
+		fmt.Printf("Downloading YARA Forge core rules → %s\n", yaraRules)
+		if err := setup.InstallYARAForge(yaraRules, progress); err != nil {
+			fmt.Fprintf(os.Stderr, "nxs: failed to download YARA Forge rules: %v\n", err)
+			fmt.Fprintf(os.Stderr, "     Download manually from https://github.com/YARAHQ/yara-forge/releases\n")
+		}
+		fmt.Println("Done. Enable YARA in nxs.conf: YARA_ENABLED = 1")
+
+	case "update":
+		fmt.Printf("Re-downloading YARA Forge core rules → %s\n", yaraRules)
+		if err := setup.InstallYARAForge(yaraRules, progress); err != nil {
+			fmt.Fprintf(os.Stderr, "nxs: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Done.")
+
+	default:
+		fmt.Fprintf(os.Stderr, "nxs signatures: unknown action %q\n", sub)
+		fmt.Fprintln(os.Stderr, "Usage: nxs signatures status|setup|update")
+		os.Exit(1)
+	}
 }
 
 // parseDuration handles "7d" in addition to standard Go durations.
