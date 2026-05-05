@@ -1,0 +1,4 @@
+algorithm,hash,severity,kind,label
+# Add malware hashes below. Format: md5 or sha256, hash, severity, kind, label
+# Example:
+# md5,44d88612fea8a8f36de82e1278abb02f,high,malware,eicar-test

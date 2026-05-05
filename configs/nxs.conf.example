@@ -1,0 +1,204 @@
+# NXS — iNtegrity eXploit Scanner
+# Configuration file reference
+# Copy to /etc/nxs/nxs.conf and edit as needed.
+
+[main]
+# Enable or disable NXS entirely
+ENABLED = 1
+
+# Override hostname reported in findings (default: os.Hostname())
+#HOSTNAME =
+
+# Base directory for persistent state and data
+DATA_DIR = /var/lib/nxs
+
+# Directory for log files
+LOG_DIR = /var/log/nxs
+
+# Directory for runtime files (PID, scan socket)
+RUN_DIR = /var/run/nxs
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[findings]
+# Path to the JSONL findings log
+LOG_PATH = /var/log/nxs/findings.log
+
+# Path to the findings state file (dedup across restarts)
+STATE_PATH = /var/lib/nxs/state/findings.json
+
+# Send notifications for new findings
+NOTIFY = 1
+
+# Minimum severity level to notify: critical, high, medium, low, info
+NOTIFY_MIN_SEVERITY = high
+
+# Global notify cooldown (re-notify same finding after this duration)
+NOTIFY_COOLDOWN = 30m
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[samples]
+# Maximum number of diff lines to include in a finding
+MAX_DIFF_LINES = 20
+
+# Maximum line length before truncation
+MAX_LINE_LENGTH = 300
+
+# Maximum number of byte-level samples per finding
+MAX_SAMPLES_PER_FINDING = 10
+
+# Redact credential-like strings from findings before writing/notifying
+REDACT_SECRETS = 1
+
+# Defang URLs in findings (http:// -> hxxp://)
+URL_DEFANG = 1
+
+# Store the full diff in the finding (can be large; off by default)
+STORE_FULL_DIFF = 0
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[engine]
+# Enable the native scan engine
+ENABLED = 1
+
+# Directory containing *.sig pattern files (Aho-Corasick, one pattern per line)
+SIG_DIR = /var/lib/nxs/signatures
+
+# CSV hash database: algorithm,hash,severity,kind,label
+HASH_DB = /usr/share/nxs/hashdb.csv
+
+# Enable YARA-X tier (uses yr subprocess — no CGO required)
+# Install: https://github.com/VirusTotal/yara-x/releases
+# Rules:   https://yarahq.github.io/ (YARA Forge)
+YARA_ENABLED = 0
+
+# Path to the yr binary (default: yr from PATH)
+#YARA_BINARY = /usr/local/bin/yr
+
+# Directory containing .yar rule files (or a single .yarc compiled rules file)
+#YARA_RULES_DIR = /var/lib/nxs/yara
+
+# Enable clamd connector (optional, fallback-only by default)
+CLAMD_ENABLED = 0
+CLAMD_SOCKET = /var/run/clamav/clamd.sock
+CLAMD_TIMEOUT = 10s
+CLAMD_FALLBACK_ONLY = 1
+
+# Skip files larger than this size (bytes; default 10MB)
+MAX_FILE_SIZE = 10485760
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[scanner]
+# Enable the scanner pipeline
+ENABLED = 1
+
+# Attempt to use fanotify for real-time monitoring (falls back to periodic if unavailable)
+FANOTIFY_ENABLED = 1
+
+# Paths to watch / periodically scan (comma-separated)
+WATCH_PATHS = /home,/tmp,/dev/shm
+
+# Enable periodic full scan
+PERIODIC_ENABLED = 1
+
+# How often to run a full periodic scan
+PERIODIC_EVERY = 6h
+
+# Hour of day to start the first periodic scan (0-23; 2 = 2am)
+PERIODIC_START_HOUR = 2
+
+# File extensions to scan (comma-separated)
+WATCH_EXTENSIONS = .php,.phtml,.php5,.php7,.html,.htm,.js,.htaccess,.user.ini
+
+# Skip files larger than this size during pipeline scans (bytes; default 2MB)
+MAX_FILE_SIZE = 2097152
+
+# Quarantine directory
+QUARANTINE_DIR = /var/lib/nxs/quarantine
+
+# Automatically quarantine/clean high-confidence detections
+AUTO_CLEAN = 1
+
+# Internal event queue size
+QUEUE_SIZE = 1024
+
+# Maximum parallel scan workers
+MAX_WORKERS = 4
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[quarantine]
+# Quarantine directory (should match scanner.QUARANTINE_DIR)
+DIR = /var/lib/nxs/quarantine
+
+# Quarantine mode:
+#   chmod  -- set file permissions to 0000 (safe for shared hosting; default)
+#   copy   -- copy to quarantine dir, leave original
+#   move   -- move to quarantine dir (breaks absolute includes in PHP)
+MODE = chmod
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[notify]
+# Enable notifications
+ENABLED = 1
+
+# Notification method: sendmail, smtp, slack, none
+METHOD = sendmail
+
+# Path to sendmail binary (used when METHOD=sendmail)
+SENDMAIL_PATH = /usr/sbin/sendmail
+
+# Recipient addresses (comma-separated)
+TO = root@localhost
+
+# Sender address
+FROM = nxs@localhost
+
+# SMTP settings (used when METHOD=smtp)
+#SMTP_HOST = mail.example.com
+#SMTP_PORT = 587
+#SMTP_USER =
+#SMTP_PASS =
+
+# Slack incoming webhook URL (used when METHOD=slack)
+#SLACK_WEBHOOK =
+
+# Default cooldown between repeat notifications for the same finding
+DEFAULT_COOLDOWN = 30m
+
+# Minimum severity to notify: critical, high, medium, low, info
+MIN_SEVERITY = high
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[exclusions]
+# Path to the JSON exclusions file
+FILE = /var/lib/nxs/state/exclusions.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[maintenance]
+# Path to the JSON maintenance windows state file
+STATE_PATH = /var/lib/nxs/state/maintenance.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[cfm]
+# Enable the CFM block API client (optional)
+ENABLED = 0
+
+# CFM API base URL
+API_URL = https://127.0.0.1:6061
+
+# CFM API token (from cfm.conf)
+API_TOKEN =
+
+# How long to block attacker IPs via CFM
+BLOCK_TTL = 24h
+
+# Finding kinds that trigger a CFM block (requires source IP in finding evidence)
+BLOCK_ON = webshell,dropper,rootkit_artifact,binary_tampered

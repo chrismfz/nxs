@@ -149,6 +149,8 @@ deb: build
 	@install -m0640 "packaging/nxs.service" "$(PKGROOT)/lib/systemd/system/nxs.service"
 	@install -m0640 "$(CONFIG_DIR)/nxs.conf" "$(PKGROOT)/etc/nxs/nxs.conf"
 	@install -m0640 "$(CONFIG_DIR)/nxs.conf.example" "$(PKGROOT)/usr/share/nxs/configs/nxs.conf.example"
+	@install -m0640 "$(CONFIG_DIR)/hashdb.csv" "$(PKGROOT)/usr/share/nxs/configs/hashdb.csv"
+	@mkdir -p "$(PKGROOT)/usr/share/nxs/signatures"
 
 	@chmod 0755 "$(PKGROOT)/DEBIAN/postinst" "$(PKGROOT)/DEBIAN/prerm" "$(PKGROOT)/DEBIAN/postrm" 2>/dev/null || true
 	@fakeroot dpkg-deb --build "$(PKGROOT)" "$(OUTDIR)/nxs_$(VERSION)-1_$(ARCH).deb"
@@ -164,6 +166,8 @@ rpm: build ## Build .rpm package
 	@install -m0640 "packaging/nxs.service" "$(PKGROOT)/lib/systemd/system/nxs.service"
 	@install -m0640 "$(CONFIG_DIR)/nxs.conf" "$(PKGROOT)/etc/nxs/nxs.conf"
 	@install -m0640 "$(CONFIG_DIR)/nxs.conf.example" "$(PKGROOT)/usr/share/nxs/configs/nxs.conf.example"
+	@install -m0640 "$(CONFIG_DIR)/hashdb.csv" "$(PKGROOT)/usr/share/nxs/configs/hashdb.csv"
+	@mkdir -p "$(PKGROOT)/usr/share/nxs/signatures"
 	@mkdir -p "$(RPMTOP)/BUILD" "$(RPMTOP)/BUILDROOT" "$(RPMTOP)/RPMS" "$(RPMTOP)/SOURCES" "$(RPMTOP)/SRPMS"
 	@rpmbuild \
 		--define "_topdir $(abspath $(RPMTOP))" \
