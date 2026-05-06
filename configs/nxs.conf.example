@@ -200,29 +200,28 @@ STATE_PATH = /var/lib/nxs/state/maintenance.json
 # Supported extensions (loaded by engine):  .yar  .yara  .hdb  .hsb  .ndb  .sig  .csv
 # Downloaded but not yet loaded:            .ldb  .ign2
 #
-# Sanesecurity (mirror: ftp.swin.edu.au)
+# Sanesecurity hash databases (cheap: hash dict lookup)
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/rogue.hdb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/spamimg.hdb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/porcupine.hsb
+#
+# Nixpal / CFM feeds (targeted NDB + hashes)
+#DATABASE_URL = https://cfm.myip.gr/clamav/hashes.ndb
+#DATABASE_URL = https://cfm.myip.gr/clamav/hashes.hsb
+#
+# ⚠ WARNING: The NDB files below are URL/spam blacklists designed for email
+# scanning. Each one builds a huge Aho-Corasick automaton that can consume
+# 10-30 GB of RAM. Only enable them if you have memory to spare.
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/jurlbl.ndb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/jurlbla.ndb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/blurl.ndb
-#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/spear.ndb
-#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/porcupine.ndb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/phishtank.ndb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/phish.ndb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/scam.ndb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/junk.ndb
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/MiscreantPunch099-Low.ldb
-#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/MiscreantPunch099-INFO-Low.ldb
-#
-# URLhaus
 #DATABASE_URL = https://urlhaus.abuse.ch/downloads/urlhaus.ndb
-#
-# Nixpal / CFM feeds
 #DATABASE_URL = https://cfm.myip.gr/clamav/nxphishlist.ndb
-#DATABASE_URL = https://cfm.myip.gr/clamav/hashes.ndb
-#DATABASE_URL = https://cfm.myip.gr/clamav/hashes.hsb
 #
 # NSA Cybersecurity - Mitigating Web Shells
 #DATABASE_URL = https://raw.githubusercontent.com/nsacyber/Mitigating-Web-Shells/master/core.webshell_detection.yara
