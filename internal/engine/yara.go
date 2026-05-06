@@ -39,13 +39,17 @@ type yaraXMatch struct {
 	MatchedData string `json:"matched_data"`
 }
 
+// yaraBundledDir is the package-installed rules dir (bundled nxs-base.yar etc).
+// Always loaded in addition to YARA_RULES_DIR when it contains .yar/.yara files.
+const yaraBundledDir = "/usr/share/nxs/signatures"
+
 // YARAScanner wraps the yr binary via subprocess.
 // It degrades gracefully when yr or the rules dir is absent.
 type YARAScanner struct {
-	binary   string
-	rulesDir string
-	log      *logging.Logger
-	enabled  bool
+	binary     string
+	ruleDirs   []string // dirs passed to yr; may include bundled + user dir
+	log        *logging.Logger
+	enabled    bool
 }
 
 func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
@@ -74,13 +78,40 @@ func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
 		return &YARAScanner{}
 	}
 
-	log.Info("yara-x scanner ready", "binary", binary, "rules_dir", rulesDir)
+	// Collect rule directories: bundled first (lower priority), then user dir.
+	// yr accepts multiple <RULES_PATH> arguments.
+	var dirs []string
+	if countYARFiles(yaraBundledDir) > 0 {
+		dirs = append(dirs, yaraBundledDir)
+	}
+	dirs = append(dirs, rulesDir)
+
+	log.Info("yara-x scanner ready", "binary", binary, "rule_dirs", dirs)
 	return &YARAScanner{
 		binary:   binary,
-		rulesDir: rulesDir,
+		ruleDirs: dirs,
 		log:      log,
 		enabled:  true,
 	}
+}
+
+// countYARFiles returns the number of .yar/.yara files directly inside dir.
+func countYARFiles(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && isYARFile(e.Name()) {
+			n++
+		}
+	}
+	return n
+}
+
+func isYARFile(name string) bool {
+	return strings.HasSuffix(name, ".yar") || strings.HasSuffix(name, ".yara")
 }
 
 func (s *YARAScanner) Enabled() bool { return s.enabled }
@@ -91,15 +122,18 @@ func (s *YARAScanner) ScanFile(path string) ([]*events.Finding, error) {
 		return nil, nil
 	}
 
-	cmd := exec.Command(s.binary, "scan",
+	// Build args: flags, then all rule dirs, then target path.
+	args := []string{
+		"scan",
 		"--output-format=ndjson",
 		"--print-namespace",
 		"--print-meta",
 		"--print-tags",
 		"--print-strings=120",
-		s.rulesDir,
-		path,
-	)
+	}
+	args = append(args, s.ruleDirs...)
+	args = append(args, path)
+	cmd := exec.Command(s.binary, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

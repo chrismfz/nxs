@@ -480,17 +480,22 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Printf("  version: %s\n", ver)
 		} else {
 			fmt.Printf("  binary : not found (%s)\n", yaraBin)
-			fmt.Println("  hint   : run `nxs signatures setup` to install")
+			fmt.Println("  hint   : run `nxs signatures update` to install")
 		}
 		fmt.Println("── YARA rules ───────────────────────────────")
+		bundledDir := "/usr/share/nxs/signatures"
+		nb, _ := setup.CountRules(bundledDir)
+		if nb > 0 {
+			fmt.Printf("  bundled: %s (%d rules)\n", bundledDir, nb)
+		}
 		n, _ := setup.CountRules(yaraRules)
 		if n > 0 {
-			fmt.Printf("  dir    : %s\n", yaraRules)
-			fmt.Printf("  files  : %d .yar files\n", n)
+			fmt.Printf("  dir    : %s (%d rules)\n", yaraRules, n)
 		} else {
 			fmt.Printf("  dir    : %s (empty or missing)\n", yaraRules)
-			fmt.Println("  hint   : run `nxs signatures setup` to download YARA Forge rules")
+			fmt.Println("  hint   : run `nxs signatures update` to download YARA Forge rules")
 		}
+		fmt.Printf("  total  : %d .yar/.yara files loaded\n", nb+n)
 
 	case "setup", "update":
 		// Both setup and update do the same thing: ensure yr is installed, then
