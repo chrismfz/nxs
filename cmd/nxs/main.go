@@ -492,8 +492,10 @@ func cmdSignatures(cfg *config.Config, args []string) {
 		nFiles, _ := setup.CountRuleFiles(sigDir)
 		nRules, _ := setup.CountRules(sigDir)
 		nHDB, _ := setup.CountSigFiles(sigDir, ".hdb", ".hsb")
+		nNDB, _ := setup.CountSigFiles(sigDir, ".ndb")
 		nSig, _ := setup.CountSigFiles(sigDir, ".sig")
-		if nFiles+nHDB+nSig > 0 {
+		nCSV, _ := setup.CountSigFiles(sigDir, ".csv")
+		if nFiles+nHDB+nNDB+nSig+nCSV > 0 {
 			fmt.Printf("  sig_dir: %s\n", sigDir)
 			if nFiles > 0 {
 				fmt.Printf("    yara : %d files, %d rules\n", nFiles, nRules)
@@ -501,8 +503,14 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			if nHDB > 0 {
 				fmt.Printf("    hash : %d .hdb/.hsb files\n", nHDB)
 			}
+			if nNDB > 0 {
+				fmt.Printf("    ndb  : %d .ndb files\n", nNDB)
+			}
 			if nSig > 0 {
 				fmt.Printf("    ac   : %d .sig files\n", nSig)
+			}
+			if nCSV > 0 {
+				fmt.Printf("    csv  : %d .csv files\n", nCSV)
 			}
 		} else {
 			fmt.Printf("  sig_dir: %s (empty or missing)\n", sigDir)

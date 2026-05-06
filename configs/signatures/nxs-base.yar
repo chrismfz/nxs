@@ -172,6 +172,72 @@ rule PHP_Dropper_Remote_Fetch {
         $php and (1 of ($curl*)) and (1 of ($write*)) and (1 of ($exec*))
 }
 
+rule PHP_Dropper_Write_Execute_Delete {
+    meta:
+        description = "PHP dropper: write POST payload to temp file, include, then unlink (in-memory dropper)"
+        severity    = "critical"
+    strings:
+        $write1  = "file_put_contents"
+        $write2  = "fwrite"
+        $incl1   = "include_once"
+        $incl2   = "include("
+        $incl3   = "include ("
+        $del     = "unlink"
+        $php     = "<?php"
+    condition:
+        $php and (1 of ($write*)) and (1 of ($incl*)) and $del
+}
+
+rule PHP_Dropper_TempDir_Selection {
+    meta:
+        description = "PHP dropper: selecting writable temp dir (shm/tmp) for payload drop"
+        severity    = "critical"
+    strings:
+        $shm     = "/dev/shm"
+        $tmp1    = "/var/tmp"
+        $tmp2    = "/tmp"
+        $getcwd  = /[Gg]et[Cc]wd\s*\(\s*\)/
+        $write1  = "file_put_contents"
+        $write2  = "fwrite"
+        $del     = "unlink"
+        $php     = "<?php"
+    condition:
+        $php and (1 of ($write*)) and $del and $getcwd and (1 of ($shm, $tmp1, $tmp2))
+}
+
+rule PHP_Dropper_POST_Decode_Drop {
+    meta:
+        description = "PHP dropper: decodes POST data (hex2bin/XOR/base64) then writes to file and includes"
+        severity    = "critical"
+    strings:
+        $decode1 = "hex2bin"
+        $decode2 = /base64_decode\s*\(\s*\$_(POST|GET|REQUEST|COOKIE)/
+        $decode3 = /str_rot13\s*\(\s*\$_(POST|GET|REQUEST|COOKIE)/
+        $write1  = "file_put_contents"
+        $write2  = "fwrite"
+        $incl1   = "include"
+        $del     = "unlink"
+        $php     = "<?php"
+    condition:
+        $php and (1 of ($decode*)) and (1 of ($write*)) and $incl1 and $del
+}
+
+rule PHP_Dropper_XOR_Decode_Exec {
+    meta:
+        description = "PHP dropper: XOR key decode of POST payload for execution"
+        severity    = "critical"
+    strings:
+        $post    = /\$_(POST|GET|REQUEST|COOKIE)\s*\[/
+        $xor     = /\^\s*\$[a-zA-Z_]\w{0,20}\[/
+        $hex     = "hex2bin"
+        $write1  = "file_put_contents"
+        $write2  = "fwrite"
+        $del     = "unlink"
+        $php     = "<?php"
+    condition:
+        $php and $post and ($hex or $xor) and (1 of ($write*)) and $del
+}
+
 // ─── Credential harvester patterns ───────────────────────────────────────────
 
 rule PHP_Credential_Harvester {
