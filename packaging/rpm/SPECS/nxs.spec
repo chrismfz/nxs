@@ -63,7 +63,7 @@ install -Dm644 %{projectroot}/LICENSE %{buildroot}/usr/share/licenses/nxs/LICENS
 %license /usr/share/licenses/nxs/LICENSE
 %{_bindir}/nxs
 %{_unitdir}/nxs.service
-%config(noreplace) /etc/nxs/nxs.conf
+%attr(0640, root, nxs) %config(noreplace) /etc/nxs/nxs.conf
 %dir %{_datadir}/nxs
 %dir %{_datadir}/nxs/configs
 %{_datadir}/nxs/configs/*
@@ -78,6 +78,10 @@ install -d -m 0750 -o nxs -g nxs /var/lib/nxs/quarantine
 install -d -m 0750 -o nxs -g nxs /var/lib/nxs/signatures
 install -d -m 0750 -o nxs -g nxs /var/log/nxs
 install -d -m 0750 -o nxs -g nxs /var/run/nxs
+
+# Ensure nxs user can read its config
+chown root:nxs /etc/nxs/nxs.conf
+chmod 0640 /etc/nxs/nxs.conf
 
 systemctl daemon-reload || true
 systemctl enable nxs.service || true

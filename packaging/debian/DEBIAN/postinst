@@ -24,6 +24,9 @@ install -d -m 0750 -o nxs -g nxs /var/lib/nxs/signatures
 install -d -m 0750 -o nxs -g nxs /var/log/nxs
 install -d -m 0750 -o nxs -g nxs /var/run/nxs
 [ -d /etc/nxs ] || install -d -m 0755 /etc/nxs
+# Ensure nxs user can read its config
+chown root:nxs /etc/nxs/nxs.conf 2>/dev/null || true
+chmod 0640 /etc/nxs/nxs.conf 2>/dev/null || true
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
