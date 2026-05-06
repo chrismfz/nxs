@@ -68,7 +68,7 @@ install -Dm644 %{projectroot}/LICENSE %{buildroot}/usr/share/licenses/nxs/LICENS
 %dir %{_datadir}/nxs/configs
 %{_datadir}/nxs/configs/*
 %dir %{_datadir}/nxs/signatures
-%{_datadir}/nxs/signatures/*.yar
+%{_datadir}/nxs/signatures/*
 
 %post
 # runtime directories
