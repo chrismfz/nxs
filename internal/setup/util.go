@@ -32,7 +32,7 @@ func YARXVersion(path string) (string, error) {
 	return strings.TrimSpace(buf.String()), nil
 }
 
-// CountRules returns the number of .yar files in dir.
+// CountRules returns the number of .yar/.yara files in dir.
 func CountRules(dir string) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -40,7 +40,8 @@ func CountRules(dir string) (int, error) {
 	}
 	n := 0
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yar") {
+		name := e.Name()
+		if !e.IsDir() && (strings.HasSuffix(name, ".yar") || strings.HasSuffix(name, ".yara")) {
 			n++
 		}
 	}

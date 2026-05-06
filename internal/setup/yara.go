@@ -123,17 +123,17 @@ func findYARAXAsset() (name, url string, err error) {
 	goarch := runtime.GOARCH // "amd64", "arm64"
 
 	// yara-x release asset names follow the pattern:
-	//   yr-v0.x.x-x86_64-unknown-linux-musl.tar.gz
-	//   yr-v0.x.x-aarch64-unknown-linux-musl.tar.gz
-	//   yr-v0.x.x-x86_64-apple-darwin.tar.gz
-	//   yr-v0.x.x-x86_64-pc-windows-msvc.zip
+	//   yara-x-v1.x.x-x86_64-unknown-linux-gnu.gz
+	//   yara-x-v1.x.x-aarch64-unknown-linux-gnu.gz
+	//   yara-x-v1.x.x-x86_64-apple-darwin.gz
+	//   yara-x-v1.x.x-x86_64-pc-windows-msvc.zip
 	archMap := map[string]string{
 		"amd64": "x86_64",
 		"arm64": "aarch64",
 		"386":   "i686",
 	}
 	osMap := map[string]string{
-		"linux":   "unknown-linux-musl",
+		"linux":   "unknown-linux-gnu",
 		"darwin":  "apple-darwin",
 		"windows": "pc-windows-msvc",
 	}
@@ -168,7 +168,11 @@ func findYARAXAsset() (name, url string, err error) {
 	}
 
 	for _, a := range rel.Assets {
-		if strings.Contains(a.Name, target) && (strings.HasSuffix(a.Name, ".tar.gz") || strings.HasSuffix(a.Name, ".zip")) {
+		if !strings.Contains(a.Name, target) {
+			continue
+		}
+		ext := a.Name
+		if strings.HasSuffix(ext, ".tar.gz") || strings.HasSuffix(ext, ".zip") || strings.HasSuffix(ext, ".gz") {
 			return a.Name, a.BrowserDownloadURL, nil
 		}
 	}
@@ -192,13 +196,18 @@ func downloadTo(url string, dst *os.File) error {
 
 // ─── Archive extraction ───────────────────────────────────────────────────────
 
-// extractBinary finds `binaryName` inside a .tar.gz or .zip archive and writes
-// it to a temp file, returning the temp file path.
+// extractBinary finds `binaryName` inside a .tar.gz, .zip, or plain .gz archive
+// and writes it to a temp file, returning the temp file path.
 func extractBinary(archivePath, binaryName, assetName string) (string, error) {
-	if strings.HasSuffix(assetName, ".zip") {
+	switch {
+	case strings.HasSuffix(assetName, ".zip"):
 		return extractBinaryFromZip(archivePath, binaryName)
+	case strings.HasSuffix(assetName, ".tar.gz"):
+		return extractBinaryFromTarGz(archivePath, binaryName)
+	default:
+		// plain .gz — the compressed stream is the binary itself
+		return extractBinaryFromGz(archivePath, binaryName)
 	}
-	return extractBinaryFromTarGz(archivePath, binaryName)
 }
 
 func extractBinaryFromTarGz(archivePath, binaryName string) (string, error) {
@@ -229,6 +238,22 @@ func extractBinaryFromTarGz(archivePath, binaryName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%q not found in archive", binaryName)
+}
+
+func extractBinaryFromGz(archivePath, binaryName string) (string, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return "", err
+	}
+	defer gz.Close()
+
+	return writeTmp(gz, binaryName)
 }
 
 func extractBinaryFromZip(archivePath, binaryName string) (string, error) {

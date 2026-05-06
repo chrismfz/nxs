@@ -68,6 +68,7 @@ install -Dm644 %{projectroot}/LICENSE %{buildroot}/usr/share/licenses/nxs/LICENS
 %dir %{_datadir}/nxs/configs
 %{_datadir}/nxs/configs/*
 %dir %{_datadir}/nxs/signatures
+%{_datadir}/nxs/signatures/*
 
 %post
 # runtime directories
@@ -82,6 +83,11 @@ install -d -m 0750 -o nxs -g nxs /var/run/nxs
 systemctl daemon-reload || true
 systemctl enable nxs.service || true
 systemctl restart nxs.service || true
+
+# Download yr + YARA Forge rules on first install (non-fatal if network unavailable)
+if command -v nxs >/dev/null 2>&1; then
+    nxs signatures update || true
+fi
 
 %preun
 %systemd_preun nxs.service
