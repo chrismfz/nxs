@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"encoding/json"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -114,6 +116,14 @@ func cmdDaemon(cfg *config.Config, log *logging.Logger) {
 
 	go periodic.Start(ctx)
 	go pipeline.Engine().WatchReload(ctx)
+
+	// Write PID file so `nxs signatures update` can signal us.
+	pidFile := filepath.Join(cfg.Main.RunDir, "nxs.pid")
+	if err := writePIDFile(pidFile); err != nil {
+		log.Warn("could not write PID file", "path", pidFile, "err", err)
+	} else {
+		defer os.Remove(pidFile)
+	}
 
 	// Signal handling
 	sigCh := make(chan os.Signal, 1)
@@ -551,13 +561,49 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Printf("  downloaded: %d  up-to-date: %d  failed: %d\n", dl, skip, fail)
 		}
 
-		fmt.Println("Done. Enable YARA in nxs.conf: YARA_ENABLED = 1")
+		// Signal the running daemon to reload its engine with the new signatures.
+		pidFile := filepath.Join(cfg.Main.RunDir, "nxs.pid")
+		if err := signalDaemon(pidFile, syscall.SIGHUP); err == nil {
+			fmt.Println("Daemon signalled — reloading signatures (no restart needed).")
+		} else {
+			fmt.Println("Done. Daemon not running; signatures will load on next start.")
+		}
 
 	default:
 		fmt.Fprintf(os.Stderr, "nxs signatures: unknown action %q\n", sub)
 		fmt.Fprintln(os.Stderr, "Usage: nxs signatures status|update")
 		os.Exit(1)
 	}
+}
+
+// writePIDFile atomically writes the current process PID to path.
+func writePIDFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// signalDaemon reads the PID file at path and sends sig to that process.
+func signalDaemon(pidFile string, sig syscall.Signal) error {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return err
+	}
+	pidStr := strings.TrimSpace(string(data))
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		return err
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Signal(sig)
 }
 
 // parseDuration handles "7d" in addition to standard Go durations.
