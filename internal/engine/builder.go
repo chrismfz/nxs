@@ -53,6 +53,14 @@ func New(cfg *config.Config, log *logging.Logger) (*Engine, error) {
 					continue
 				}
 				acSigs = append(acSigs, more...)
+			case ".ndb":
+				more, loaded, skipped, err := LoadNDB(path)
+				if err != nil {
+					log.Warn("NDB load failed", "path", path, "err", err)
+					continue
+				}
+				acSigs = append(acSigs, more...)
+				log.Info("loaded NDB", "path", path, "loaded", loaded, "skipped_wildcards", skipped)
 			case ".hdb", ".hsb":
 				n, err := LoadClamAVHDB(path, idx)
 				if err != nil {

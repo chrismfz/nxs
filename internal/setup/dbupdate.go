@@ -18,6 +18,7 @@ var supportedExts = map[string]string{
 	".yara": "YARA rules",
 	".hdb":  "ClamAV MD5 hash DB",
 	".hsb":  "ClamAV SHA hash DB",
+	".ndb":  "ClamAV NDB patterns (exact-match entries loaded)",
 	".sig":  "NXS AC patterns",
 	".csv":  "NXS hash CSV",
 }
@@ -25,9 +26,8 @@ var supportedExts = map[string]string{
 // unsupportedExts are downloaded (so they're ready if support is added later)
 // but not loaded by the engine.
 var unsupportedExts = map[string]string{
-	".ndb":  "ClamAV NDB patterns (not yet loaded)",
-	".ldb":  "ClamAV logical sigs (not yet loaded)",
-	".ign2": "ClamAV ignore list (not yet loaded)",
+	".ldb":  "ClamAV logical sigs (not loaded)",
+	".ign2": "ClamAV ignore list (not loaded)",
 	".cld":  "ClamAV compiled DB (binary, cannot load)",
 	".cvd":  "ClamAV compiled DB (binary, cannot load)",
 }
