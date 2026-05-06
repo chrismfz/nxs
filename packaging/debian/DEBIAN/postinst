@@ -1,29 +1,15 @@
 #!/bin/sh
 set -e
 
-if ! getent group nxs >/dev/null 2>&1; then
-    groupadd --system nxs
-fi
-
-if ! getent passwd nxs >/dev/null 2>&1; then
-    useradd \
-        --system \
-        --gid nxs \
-        --no-create-home \
-        --home-dir /var/lib/nxs \
-        --shell /sbin/nologin \
-        --comment "NXS service account" \
-        nxs
-fi
-
-# runtime directories
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs/state
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs/quarantine
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs/signatures
-install -d -m 0750 -o nxs -g nxs /var/log/nxs
-install -d -m 0750 -o nxs -g nxs /var/run/nxs
+# runtime directories (root-owned; daemon runs as root)
+install -d -m 0750 /var/lib/nxs
+install -d -m 0750 /var/lib/nxs/state
+install -d -m 0750 /var/lib/nxs/quarantine
+install -d -m 0750 /var/lib/nxs/signatures
+install -d -m 0750 /var/log/nxs
+install -d -m 0750 /var/run/nxs
 [ -d /etc/nxs ] || install -d -m 0755 /etc/nxs
+chmod 0600 /etc/nxs/nxs.conf 2>/dev/null || true
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true

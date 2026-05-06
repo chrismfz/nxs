@@ -18,20 +18,7 @@ database infection scanning, rootkit/post-exploitation indicators,
 and runtime file access visibility.
 
 %pre
-if ! getent group nxs >/dev/null 2>&1; then
-    groupadd --system nxs
-fi
-
-if ! getent passwd nxs >/dev/null 2>&1; then
-    useradd \
-        --system \
-        --gid nxs \
-        --no-create-home \
-        --home-dir /var/lib/nxs \
-        --shell /sbin/nologin \
-        -c "NXS service account" \
-        nxs
-fi
+# no dedicated user — daemon runs as root (requires CAP_SYS_ADMIN for fanotify)
 
 %prep
 # nothing
@@ -63,7 +50,7 @@ install -Dm644 %{projectroot}/LICENSE %{buildroot}/usr/share/licenses/nxs/LICENS
 %license /usr/share/licenses/nxs/LICENSE
 %{_bindir}/nxs
 %{_unitdir}/nxs.service
-%config(noreplace) /etc/nxs/nxs.conf
+%attr(0600, root, root) %config(noreplace) /etc/nxs/nxs.conf
 %dir %{_datadir}/nxs
 %dir %{_datadir}/nxs/configs
 %{_datadir}/nxs/configs/*
@@ -71,13 +58,14 @@ install -Dm644 %{projectroot}/LICENSE %{buildroot}/usr/share/licenses/nxs/LICENS
 %{_datadir}/nxs/signatures/*
 
 %post
-# runtime directories
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs/state
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs/quarantine
-install -d -m 0750 -o nxs -g nxs /var/lib/nxs/signatures
-install -d -m 0750 -o nxs -g nxs /var/log/nxs
-install -d -m 0750 -o nxs -g nxs /var/run/nxs
+# runtime directories (root-owned; daemon runs as root)
+install -d -m 0750 /var/lib/nxs
+install -d -m 0750 /var/lib/nxs/state
+install -d -m 0750 /var/lib/nxs/quarantine
+install -d -m 0750 /var/lib/nxs/signatures
+install -d -m 0750 /var/log/nxs
+install -d -m 0750 /var/run/nxs
+chmod 0600 /etc/nxs/nxs.conf 2>/dev/null || true
 
 systemctl daemon-reload || true
 systemctl enable nxs.service || true
