@@ -32,4 +32,9 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl restart nxs.service || true
 fi
 
+# Download yr + YARA Forge rules on first install (non-fatal if network unavailable)
+if command -v nxs >/dev/null 2>&1; then
+    nxs signatures update || true
+fi
+
 exit 0

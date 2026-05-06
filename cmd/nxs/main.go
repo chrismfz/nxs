@@ -442,8 +442,7 @@ Subcommands:
   exclusions list|add|remove      Manage scan exclusions
   maintenance list|add|remove     Manage maintenance windows
   signatures status               Show yr + YARA rules status
-  signatures setup                Download yr binary + YARA Forge core rules
-  signatures update               Re-download YARA Forge core rules
+  signatures update               Install/update yr binary + YARA Forge rules
   version                         Print version
 
 Global flags:
@@ -493,10 +492,11 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Println("  hint   : run `nxs signatures setup` to download YARA Forge rules")
 		}
 
-	case "setup":
-		fmt.Println("Setting up YARA-X and YARA Forge rules...")
+	case "setup", "update":
+		// Both setup and update do the same thing: ensure yr is installed, then
+		// download/refresh YARA Forge rules.
+		fmt.Println("Updating YARA-X and YARA Forge rules...")
 
-		// Determine install path for yr
 		installBin := yaraBin
 		if installBin == "yr" {
 			installBin = "/usr/local/bin/yr"
@@ -521,17 +521,9 @@ func cmdSignatures(cfg *config.Config, args []string) {
 		}
 		fmt.Println("Done. Enable YARA in nxs.conf: YARA_ENABLED = 1")
 
-	case "update":
-		fmt.Printf("Re-downloading YARA Forge core rules → %s\n", yaraRules)
-		if err := setup.InstallYARAForge(yaraRules, progress); err != nil {
-			fmt.Fprintf(os.Stderr, "nxs: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println("Done.")
-
 	default:
 		fmt.Fprintf(os.Stderr, "nxs signatures: unknown action %q\n", sub)
-		fmt.Fprintln(os.Stderr, "Usage: nxs signatures status|setup|update")
+		fmt.Fprintln(os.Stderr, "Usage: nxs signatures status|update")
 		os.Exit(1)
 	}
 }
