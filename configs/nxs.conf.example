@@ -190,6 +190,42 @@ STATE_PATH = /var/lib/nxs/state/maintenance.json
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+
+[signatures]
+# Signature databases to download/update with `nxs signatures update`.
+# Each DATABASE_URL line is fetched individually; re-runs use If-Modified-Since
+# so only changed files are downloaded.
+#
+# Supported extensions (loaded by engine):  .yar  .yara  .hdb  .hsb  .sig  .csv
+# Downloaded but not yet loaded:            .ndb  .ldb  .ign2
+#
+# Sanesecurity (mirror: ftp.swin.edu.au)
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/rogue.hdb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/spamimg.hdb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/porcupine.hsb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/jurlbl.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/jurlbla.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/blurl.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/spear.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/porcupine.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/phishtank.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/phish.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/scam.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/junk.ndb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/MiscreantPunch099-Low.ldb
+#DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/MiscreantPunch099-INFO-Low.ldb
+#
+# URLhaus
+#DATABASE_URL = https://urlhaus.abuse.ch/downloads/urlhaus.ndb
+#
+# Nixpal / CFM feeds
+#DATABASE_URL = https://cfm.myip.gr/clamav/nxphishlist.ndb
+#DATABASE_URL = https://cfm.myip.gr/clamav/hashes.ndb
+#DATABASE_URL = https://cfm.myip.gr/clamav/hashes.hsb
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 [cfm]
 # Enable the CFM block API client (optional)
 ENABLED = 0

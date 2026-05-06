@@ -96,6 +96,13 @@ type CFM struct {
 	BlockOn  []string
 }
 
+// Signatures holds URLs for automatic signature database updates.
+// Each DATABASE_URL line is appended; re-running `nxs signatures update`
+// only re-downloads files that have changed (If-Modified-Since).
+type Signatures struct {
+	DatabaseURLs []string
+}
+
 type Config struct {
 	Main        Main
 	Findings    Findings
@@ -107,6 +114,7 @@ type Config struct {
 	Exclusions  Exclusions
 	Maintenance Maintenance
 	CFM         CFM
+	Signatures  Signatures
 }
 
 func Default() *Config {
@@ -370,6 +378,14 @@ func applyKey(cfg *Config, section, k, v string) {
 			cfg.CFM.BlockTTL = v
 		case "block_on":
 			cfg.CFM.BlockOn = splitComma(v)
+		}
+
+	case "signatures":
+		switch k {
+		case "database_url":
+			if v != "" {
+				cfg.Signatures.DatabaseURLs = append(cfg.Signatures.DatabaseURLs, v)
+			}
 		}
 	}
 }

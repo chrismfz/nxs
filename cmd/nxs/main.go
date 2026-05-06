@@ -535,6 +535,14 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Fprintf(os.Stderr, "nxs: failed to download YARA Forge rules: %v\n", err)
 			fmt.Fprintf(os.Stderr, "     Download manually from https://github.com/YARAHQ/yara-forge/releases\n")
 		}
+
+		if len(cfg.Signatures.DatabaseURLs) > 0 {
+			fmt.Printf("Downloading %d configured signature database(s) → %s\n",
+				len(cfg.Signatures.DatabaseURLs), sigDir)
+			dl, skip, fail := setup.DownloadDBs(cfg.Signatures.DatabaseURLs, sigDir, progress)
+			fmt.Printf("  downloaded: %d  up-to-date: %d  failed: %d\n", dl, skip, fail)
+		}
+
 		fmt.Println("Done. Enable YARA in nxs.conf: YARA_ENABLED = 1")
 
 	default:
