@@ -144,14 +144,17 @@ func LoadNDB(path string) (sigs []Signature, loaded, skipped int, err error) {
 		targetType := strings.TrimSpace(parts[1])
 		hexSig := strings.TrimSpace(parts[3])
 
-		// Only load signatures that apply to any file or ASCII text.
-		if targetType != "0" && targetType != "7" {
+		// Load types relevant to web files: 0=any, 3=HTML, 7=ASCII text.
+		switch targetType {
+		case "0", "3", "7":
+		default:
 			skipped++
 			continue
 		}
 
-		// Skip entries with wildcard/alternation syntax — not yet supported.
-		if strings.ContainsAny(hexSig, "?({[") {
+		// Skip entries with wildcard/alternation/jump syntax — not yet supported.
+		// * = jump (any bytes), ? = nibble wildcard, ( = alternation, [ = range jump, { = repetition
+		if strings.ContainsAny(hexSig, "?({[*") {
 			skipped++
 			continue
 		}
