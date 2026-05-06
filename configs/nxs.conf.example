@@ -197,8 +197,8 @@ STATE_PATH = /var/lib/nxs/state/maintenance.json
 # Each DATABASE_URL line is fetched individually; re-runs use If-Modified-Since
 # so only changed files are downloaded.
 #
-# Supported extensions (loaded by engine):  .yar  .yara  .hdb  .hsb  .sig  .csv
-# Downloaded but not yet loaded:            .ndb  .ldb  .ign2
+# Supported extensions (loaded by engine):  .yar  .yara  .hdb  .hsb  .ndb  .sig  .csv
+# Downloaded but not yet loaded:            .ldb  .ign2
 #
 # Sanesecurity (mirror: ftp.swin.edu.au)
 #DATABASE_URL = http://ftp.swin.edu.au/sanesecurity/rogue.hdb
@@ -223,6 +223,18 @@ STATE_PATH = /var/lib/nxs/state/maintenance.json
 #DATABASE_URL = https://cfm.myip.gr/clamav/nxphishlist.ndb
 #DATABASE_URL = https://cfm.myip.gr/clamav/hashes.ndb
 #DATABASE_URL = https://cfm.myip.gr/clamav/hashes.hsb
+#
+# NSA Cybersecurity - Mitigating Web Shells
+#DATABASE_URL = https://raw.githubusercontent.com/nsacyber/Mitigating-Web-Shells/master/core.webshell_detection.yara
+#DATABASE_URL = https://raw.githubusercontent.com/nsacyber/Mitigating-Web-Shells/master/extended.webshell_detection.yara
+#
+# Neo23x0 / Florian Roth - signature-base webshell rules
+#DATABASE_URL = https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/thor-webshells.yar
+#DATABASE_URL = https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/gen_webshells.yar
+#DATABASE_URL = https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/gen_cn_webshells.yar
+#DATABASE_URL = https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/apt_webshell_chinachopper.yar
+#DATABASE_URL = https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/webshell_regeorg.yar
+#DATABASE_URL = https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/vul_php_zlib_backdoor.yar
 
 # ─────────────────────────────────────────────────────────────────────────────
 
