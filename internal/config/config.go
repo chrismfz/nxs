@@ -34,11 +34,10 @@ type Samples struct {
 
 type Engine struct {
 	Enabled          bool
-	SigDir           string
+	SigDir           string // unified: .yar/.yara/.hdb/.hsb/.sig/.csv all go here
 	HashDB           string
 	YARAEnabled      bool
 	YARABinary       string // path to yr binary; default "yr"
-	YARARulesDir     string
 	ClamdEnabled     bool
 	ClamdSocket      string
 	ClamdTimeout     string
@@ -137,7 +136,6 @@ func Default() *Config {
 			HashDB:           "/usr/share/nxs/hashdb.csv",
 			MaxFileSizeBytes: 10 * 1024 * 1024,
 			YARABinary:       "yr",
-			YARARulesDir:     "/var/lib/nxs/yara",
 			ClamdSocket:      "/var/run/clamav/clamd.sock",
 			ClamdTimeout:     "10s",
 		},
@@ -272,8 +270,6 @@ func applyKey(cfg *Config, section, k, v string) {
 			cfg.Engine.YARAEnabled = parseBool(v)
 		case "yara_binary":
 			cfg.Engine.YARABinary = v
-		case "yara_rules_dir":
-			cfg.Engine.YARARulesDir = v
 		case "clamd_enabled":
 			cfg.Engine.ClamdEnabled = parseBool(v)
 		case "clamd_socket":

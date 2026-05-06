@@ -464,10 +464,11 @@ func cmdSignatures(cfg *config.Config, args []string) {
 	if yaraBin == "" {
 		yaraBin = "yr"
 	}
-	yaraRules := cfg.Engine.YARARulesDir
-	if yaraRules == "" {
-		yaraRules = "/var/lib/nxs/yara"
+	sigDir := cfg.Engine.SigDir
+	if sigDir == "" {
+		sigDir = "/var/lib/nxs/signatures"
 	}
+	bundledDir := "/usr/share/nxs/signatures"
 
 	progress := func(msg string) { fmt.Println(" ", msg) }
 
@@ -482,26 +483,34 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Printf("  binary : not found (%s)\n", yaraBin)
 			fmt.Println("  hint   : run `nxs signatures update` to install")
 		}
-		fmt.Println("── YARA rules ───────────────────────────────")
-		bundledDir := "/usr/share/nxs/signatures"
+		fmt.Println("── signatures ───────────────────────────────")
 		nbFiles, _ := setup.CountRuleFiles(bundledDir)
 		nbRules, _ := setup.CountRules(bundledDir)
 		if nbFiles > 0 {
-			fmt.Printf("  bundled: %s (%d files, %d rules)\n", bundledDir, nbFiles, nbRules)
+			fmt.Printf("  bundled: %s (%d .yar/.yara, %d rules)\n", bundledDir, nbFiles, nbRules)
 		}
-		nFiles, _ := setup.CountRuleFiles(yaraRules)
-		nRules, _ := setup.CountRules(yaraRules)
-		if nFiles > 0 {
-			fmt.Printf("  dir    : %s (%d files, %d rules)\n", yaraRules, nFiles, nRules)
+		nFiles, _ := setup.CountRuleFiles(sigDir)
+		nRules, _ := setup.CountRules(sigDir)
+		nHDB, _ := setup.CountSigFiles(sigDir, ".hdb", ".hsb")
+		nSig, _ := setup.CountSigFiles(sigDir, ".sig")
+		if nFiles+nHDB+nSig > 0 {
+			fmt.Printf("  sig_dir: %s\n", sigDir)
+			if nFiles > 0 {
+				fmt.Printf("    yara : %d files, %d rules\n", nFiles, nRules)
+			}
+			if nHDB > 0 {
+				fmt.Printf("    hash : %d .hdb/.hsb files\n", nHDB)
+			}
+			if nSig > 0 {
+				fmt.Printf("    ac   : %d .sig files\n", nSig)
+			}
 		} else {
-			fmt.Printf("  dir    : %s (empty or missing)\n", yaraRules)
+			fmt.Printf("  sig_dir: %s (empty or missing)\n", sigDir)
 			fmt.Println("  hint   : run `nxs signatures update` to download YARA Forge rules")
 		}
-		fmt.Printf("  total  : %d rules across %d files\n", nbRules+nRules, nbFiles+nFiles)
+		fmt.Printf("  total  : %d YARA rules across %d files\n", nbRules+nRules, nbFiles+nFiles)
 
 	case "setup", "update":
-		// Both setup and update do the same thing: ensure yr is installed, then
-		// download/refresh YARA Forge rules.
 		fmt.Println("Updating YARA-X and YARA Forge rules...")
 
 		installBin := yaraBin
@@ -521,8 +530,8 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Printf("  yr already installed: %s (skipping)\n", yaraBin)
 		}
 
-		fmt.Printf("Downloading YARA Forge core rules → %s\n", yaraRules)
-		if err := setup.InstallYARAForge(yaraRules, progress); err != nil {
+		fmt.Printf("Downloading YARA Forge core rules → %s\n", sigDir)
+		if err := setup.InstallYARAForge(sigDir, progress); err != nil {
 			fmt.Fprintf(os.Stderr, "nxs: failed to download YARA Forge rules: %v\n", err)
 			fmt.Fprintf(os.Stderr, "     Download manually from https://github.com/YARAHQ/yara-forge/releases\n")
 		}

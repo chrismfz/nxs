@@ -63,22 +63,25 @@ STORE_FULL_DIFF = 0
 # Enable the native scan engine
 ENABLED = 1
 
-# Directory containing *.sig pattern files (Aho-Corasick, one pattern per line)
+# Unified signature directory — drop any of these file types here:
+#   .yar / .yara  — YARA rules (loaded by yr)
+#   .hdb          — ClamAV MD5 hash database   (hash:size:name)
+#   .hsb          — ClamAV SHA1/SHA256 hash DB  (hash:size:name)
+#   .sig          — NXS AC patterns             (id:severity:kind:pattern)
+#   .csv          — NXS hash CSV                (algorithm,hash,severity,kind,label)
+# YARA Forge rules are downloaded here by `nxs signatures update`.
+# Bundled rules are always loaded from /usr/share/nxs/signatures (read-only).
 SIG_DIR = /var/lib/nxs/signatures
 
-# CSV hash database: algorithm,hash,severity,kind,label
+# Built-in hash database (CSV format, shipped with package)
 HASH_DB = /usr/share/nxs/hashdb.csv
 
 # Enable YARA-X tier (uses yr subprocess — no CGO required)
-# Install: https://github.com/VirusTotal/yara-x/releases
-# Rules:   https://yarahq.github.io/ (YARA Forge)
+# Install yr: nxs signatures update
 YARA_ENABLED = 0
 
 # Path to the yr binary (default: yr from PATH)
 #YARA_BINARY = /usr/local/bin/yr
-
-# Directory containing .yar rule files (or a single .yarc compiled rules file)
-#YARA_RULES_DIR = /var/lib/nxs/yara
 
 # Enable clamd connector (optional, fallback-only by default)
 CLAMD_ENABLED = 0

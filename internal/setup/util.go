@@ -94,6 +94,28 @@ func countRulesInFile(path string) (int, error) {
 	return n, sc.Err()
 }
 
+// CountSigFiles returns the number of files in dir matching any of the given extensions.
+func CountSigFiles(dir string, exts ...string) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		for _, ext := range exts {
+			if strings.HasSuffix(name, ext) {
+				n++
+				break
+			}
+		}
+	}
+	return n, nil
+}
+
 // execLookPath is an internal alias used by yara.go.
 func execLookPath(name string) (string, error) { return exec.LookPath(name) }
 

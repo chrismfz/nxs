@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/chrismfz/nxs/internal/config"
@@ -24,18 +25,65 @@ type Engine struct {
 }
 
 func New(cfg *config.Config, log *logging.Logger) (*Engine, error) {
+	// Built-in hash DB (CSV format)
 	idx, err := LoadHashDB(cfg.Engine.HashDB)
 	if err != nil {
 		log.Warn("hash DB load failed — continuing without it", "err", err)
-		idx = &HashIndex{byMD5: map[string]HashEntry{}, bySHA256: map[string]HashEntry{}}
+		idx = &HashIndex{
+			byMD5:    map[string]HashEntry{},
+			bySHA1:   map[string]HashEntry{},
+			bySHA256: map[string]HashEntry{},
+		}
 	}
-	sigs, err := LoadSigDir(cfg.Engine.SigDir)
-	if err != nil {
-		log.Warn("signature dir load failed — continuing without signatures", "err", err)
+
+	// Unified SIG_DIR: dispatch by extension
+	var acSigs []Signature
+	if cfg.Engine.SigDir != "" {
+		entries, _ := os.ReadDir(cfg.Engine.SigDir)
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			path := filepath.Join(cfg.Engine.SigDir, e.Name())
+			switch ext := strings.ToLower(filepath.Ext(e.Name())); ext {
+			case ".sig":
+				more, err := parseSigFile(path)
+				if err != nil {
+					log.Warn("sig file load failed", "path", path, "err", err)
+					continue
+				}
+				acSigs = append(acSigs, more...)
+			case ".hdb", ".hsb":
+				n, err := LoadClamAVHDB(path, idx)
+				if err != nil {
+					log.Warn("ClamAV hash DB load failed", "path", path, "err", err)
+					continue
+				}
+				log.Info("loaded ClamAV hash DB", "path", path, "entries", n)
+			case ".csv":
+				// NXS CSV hash format — merge into existing index
+				extra, err := LoadHashDB(path)
+				if err != nil {
+					log.Warn("CSV hash DB load failed", "path", path, "err", err)
+					continue
+				}
+				for k, v := range extra.byMD5 {
+					idx.byMD5[k] = v
+				}
+				for k, v := range extra.bySHA1 {
+					idx.bySHA1[k] = v
+				}
+				for k, v := range extra.bySHA256 {
+					idx.bySHA256[k] = v
+				}
+			// .yar/.yara are handled by YARAScanner below
+			}
+		}
 	}
-	ac := BuildACMatcher(sigs)
+
+	ac := BuildACMatcher(acSigs)
 	yara := NewYARAScanner(cfg, log)
-	log.Info("engine loaded", "hashes", idx.Len(), "signatures", len(sigs), "yara", yara.Enabled())
+	log.Info("engine loaded", "hashes", idx.Len(), "signatures", len(acSigs), "yara", yara.Enabled())
 
 	e := &Engine{cfg: cfg, log: log, hashIdx: idx, ac: ac, yara: yara}
 	e.stats.reset()
@@ -62,13 +110,13 @@ func (e *Engine) ScanFile(path string) ([]*events.Finding, error) {
 
 	e.stats.filesScanned.Add(1)
 
-	md5sum, sha256sum, err := HashFile(path)
+	md5sum, sha1sum, sha256sum, err := HashFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Tier 1: hash lookup
-	for _, h := range []string{md5sum, sha256sum} {
+	// Tier 1: hash lookup (MD5, SHA1, SHA256)
+	for _, h := range []string{md5sum, sha1sum, sha256sum} {
 		if entry, ok := e.hashIdx.Lookup(h); ok {
 			e.stats.hashHits.Add(1)
 			f := events.NewFinding("engine", "hash", entry.Severity, entry.Kind,
@@ -76,6 +124,7 @@ func (e *Engine) ScanFile(path string) ([]*events.Finding, error) {
 			f.Path = path
 			f.Evidence = map[string]any{
 				"md5":       md5sum,
+				"sha1":      sha1sum,
 				"sha256":    sha256sum,
 				"signature": entry.Label,
 				"algorithm": entry.Algorithm,
@@ -102,6 +151,7 @@ func (e *Engine) ScanFile(path string) ([]*events.Finding, error) {
 		if len(yaraFindings) > 0 {
 			for _, f := range yaraFindings {
 				f.Evidence["md5"] = md5sum
+				f.Evidence["sha1"] = sha1sum
 				f.Evidence["sha256"] = sha256sum
 				e.stats.findingsEmitted.Add(1)
 			}
@@ -154,6 +204,7 @@ func (e *Engine) ScanFile(path string) ([]*events.Finding, error) {
 		f.Evidence = map[string]any{
 			"signature": sig.ID,
 			"md5":       md5sum,
+			"sha1":      sha1sum,
 			"sha256":    sha256sum,
 		}
 		findings = append(findings, f)
