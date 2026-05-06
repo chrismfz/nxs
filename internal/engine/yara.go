@@ -40,16 +40,16 @@ type yaraXMatch struct {
 }
 
 // yaraBundledDir is the package-installed rules dir (bundled nxs-base.yar etc).
-// Always loaded in addition to YARA_RULES_DIR when it contains .yar/.yara files.
+// Always searched for .yar/.yara files in addition to SIG_DIR.
 const yaraBundledDir = "/usr/share/nxs/signatures"
 
 // YARAScanner wraps the yr binary via subprocess.
-// It degrades gracefully when yr or the rules dir is absent.
+// It degrades gracefully when yr or rule files are absent.
 type YARAScanner struct {
-	binary     string
-	ruleDirs   []string // dirs passed to yr; may include bundled + user dir
-	log        *logging.Logger
-	enabled    bool
+	binary    string
+	ruleFiles []string // explicit .yar/.yara file paths passed to yr
+	log       *logging.Logger
+	enabled   bool
 }
 
 func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
@@ -64,50 +64,45 @@ func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
 	if _, err := exec.LookPath(binary); err != nil {
 		log.Info("yara-x binary not found — YARA tier disabled",
 			"binary", binary,
-			"hint", "install yara-x: https://github.com/VirusTotal/yara-x")
+			"hint", "run: nxs signatures update")
 		return &YARAScanner{}
 	}
 
-	rulesDir := cfg.Engine.YARARulesDir
-	if rulesDir == "" {
-		log.Warn("yara-x: YARA_RULES_DIR not set — YARA tier disabled")
-		return &YARAScanner{}
-	}
-	if _, err := os.Stat(rulesDir); err != nil {
-		log.Warn("yara-x: rules dir not found — YARA tier disabled", "dir", rulesDir)
+	// Collect .yar/.yara files from bundled dir and SIG_DIR explicitly.
+	// We pass file paths rather than dirs so that yr never tries to parse
+	// .hdb/.sig/etc files as YARA rules.
+	var files []string
+	files = append(files, collectYARFiles(yaraBundledDir)...)
+	files = append(files, collectYARFiles(cfg.Engine.SigDir)...)
+
+	if len(files) == 0 {
+		log.Info("yara-x: no .yar/.yara files found — YARA tier disabled",
+			"hint", "run: nxs signatures update")
 		return &YARAScanner{}
 	}
 
-	// Collect rule directories: bundled first (lower priority), then user dir.
-	// yr accepts multiple <RULES_PATH> arguments.
-	var dirs []string
-	if countYARFiles(yaraBundledDir) > 0 {
-		dirs = append(dirs, yaraBundledDir)
-	}
-	dirs = append(dirs, rulesDir)
-
-	log.Info("yara-x scanner ready", "binary", binary, "rule_dirs", dirs)
+	log.Info("yara-x scanner ready", "binary", binary, "rule_files", len(files))
 	return &YARAScanner{
-		binary:   binary,
-		ruleDirs: dirs,
-		log:      log,
-		enabled:  true,
+		binary:    binary,
+		ruleFiles: files,
+		log:       log,
+		enabled:   true,
 	}
 }
 
-// countYARFiles returns the number of .yar/.yara files directly inside dir.
-func countYARFiles(dir string) int {
+// collectYARFiles returns the paths of all .yar/.yara files directly in dir.
+func collectYARFiles(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0
+		return nil
 	}
-	n := 0
+	var out []string
 	for _, e := range entries {
 		if !e.IsDir() && isYARFile(e.Name()) {
-			n++
+			out = append(out, dir+"/"+e.Name())
 		}
 	}
-	return n
+	return out
 }
 
 func isYARFile(name string) bool {
@@ -122,7 +117,8 @@ func (s *YARAScanner) ScanFile(path string) ([]*events.Finding, error) {
 		return nil, nil
 	}
 
-	// Build args: flags, then all rule dirs, then target path.
+	// Build args: flags, then explicit rule files, then target path.
+	// Passing files (not dirs) prevents yr from trying to parse .hdb/.sig etc.
 	args := []string{
 		"scan",
 		"--output-format=ndjson",
@@ -131,7 +127,7 @@ func (s *YARAScanner) ScanFile(path string) ([]*events.Finding, error) {
 		"--print-tags",
 		"--print-strings=120",
 	}
-	args = append(args, s.ruleDirs...)
+	args = append(args, s.ruleFiles...)
 	args = append(args, path)
 	cmd := exec.Command(s.binary, args...)
 

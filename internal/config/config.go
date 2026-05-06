@@ -34,11 +34,10 @@ type Samples struct {
 
 type Engine struct {
 	Enabled          bool
-	SigDir           string
+	SigDir           string // unified: .yar/.yara/.hdb/.hsb/.sig/.csv all go here
 	HashDB           string
 	YARAEnabled      bool
 	YARABinary       string // path to yr binary; default "yr"
-	YARARulesDir     string
 	ClamdEnabled     bool
 	ClamdSocket      string
 	ClamdTimeout     string
@@ -97,6 +96,13 @@ type CFM struct {
 	BlockOn  []string
 }
 
+// Signatures holds URLs for automatic signature database updates.
+// Each DATABASE_URL line is appended; re-running `nxs signatures update`
+// only re-downloads files that have changed (If-Modified-Since).
+type Signatures struct {
+	DatabaseURLs []string
+}
+
 type Config struct {
 	Main        Main
 	Findings    Findings
@@ -108,6 +114,7 @@ type Config struct {
 	Exclusions  Exclusions
 	Maintenance Maintenance
 	CFM         CFM
+	Signatures  Signatures
 }
 
 func Default() *Config {
@@ -137,7 +144,6 @@ func Default() *Config {
 			HashDB:           "/usr/share/nxs/hashdb.csv",
 			MaxFileSizeBytes: 10 * 1024 * 1024,
 			YARABinary:       "yr",
-			YARARulesDir:     "/var/lib/nxs/yara",
 			ClamdSocket:      "/var/run/clamav/clamd.sock",
 			ClamdTimeout:     "10s",
 		},
@@ -272,8 +278,6 @@ func applyKey(cfg *Config, section, k, v string) {
 			cfg.Engine.YARAEnabled = parseBool(v)
 		case "yara_binary":
 			cfg.Engine.YARABinary = v
-		case "yara_rules_dir":
-			cfg.Engine.YARARulesDir = v
 		case "clamd_enabled":
 			cfg.Engine.ClamdEnabled = parseBool(v)
 		case "clamd_socket":
@@ -374,6 +378,14 @@ func applyKey(cfg *Config, section, k, v string) {
 			cfg.CFM.BlockTTL = v
 		case "block_on":
 			cfg.CFM.BlockOn = splitComma(v)
+		}
+
+	case "signatures":
+		switch k {
+		case "database_url":
+			if v != "" {
+				cfg.Signatures.DatabaseURLs = append(cfg.Signatures.DatabaseURLs, v)
+			}
 		}
 	}
 }

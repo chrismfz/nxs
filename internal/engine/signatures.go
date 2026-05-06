@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bufio"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,4 +111,68 @@ func (ac *ACMatcher) Match(data []byte) []int {
 
 func (ac *ACMatcher) Sig(idx int) Signature {
 	return ac.sigs[idx]
+}
+
+// LoadNDB loads a ClamAV .ndb file and returns signatures for exact-match
+// entries (no wildcards). Entries with ??, (, [, or { are skipped — they
+// require regex matching which is not yet implemented.
+//
+// NDB format: MalwareName:TargetType:Offset:HexSignature[:MinFL:MaxFL]
+// TargetType 0 = any file; others are PE/OLE/HTML/etc. We load type 0 and
+// type 7 (ASCII text) since those apply to web files on hosting servers.
+//
+// Returns (loaded, skipped) counts.
+func LoadNDB(path string) (sigs []Signature, loaded, skipped int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 256*1024), 256*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 5)
+		if len(parts) < 4 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		targetType := strings.TrimSpace(parts[1])
+		hexSig := strings.TrimSpace(parts[3])
+
+		// Load types relevant to web files: 0=any, 3=HTML, 7=ASCII text.
+		switch targetType {
+		case "0", "3", "7":
+		default:
+			skipped++
+			continue
+		}
+
+		// Skip entries with wildcard/alternation/jump syntax — not yet supported.
+		// * = jump (any bytes), ? = nibble wildcard, ( = alternation, [ = range jump, { = repetition
+		if strings.ContainsAny(hexSig, "?({[*") {
+			skipped++
+			continue
+		}
+
+		b, decErr := hex.DecodeString(hexSig)
+		if decErr != nil || len(b) < 4 {
+			skipped++
+			continue
+		}
+
+		sigs = append(sigs, Signature{
+			ID:       name,
+			Pattern:  b,
+			Severity: "medium",
+			Kind:     "malware",
+			Label:    name,
+		})
+		loaded++
+	}
+	return sigs, loaded, skipped, sc.Err()
 }
