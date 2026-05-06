@@ -314,3 +314,173 @@ rule Linux_Base64_Decoded_Exec {
     condition:
         any of them
 }
+
+// ─── Callback-based and indirect execution ────────────────────────────────────
+
+rule PHP_Webshell_Callback_Exec {
+    meta:
+        description = "PHP webshell: array_map/array_filter/usort used to invoke code from user input"
+        severity    = "critical"
+    strings:
+        $cb1 = /array_map\s*\(\s*['"]?(assert|eval|system|exec|passthru|shell_exec)/i
+        $cb2 = /array_filter\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+        $cb3 = /usort\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+        $cb4 = /call_user_func\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+        $cb5 = /call_user_func_array\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+        $cb6 = /array_map\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+    condition:
+        any of them
+}
+
+rule PHP_Webshell_Dynamic_Invoke {
+    meta:
+        description = "PHP webshell: variable-variable dynamic function call ($func($arg))"
+        severity    = "high"
+    strings:
+        $php  = "<?php"
+        // $var = 'system'; $var($_POST[...])
+        $dyn1 = /\$\w+\s*=\s*['"](\bsystem\b|\bexec\b|\bshell_exec\b|\bassert\b|\bpassthru\b|\beval\b)['"]\s*;/
+        // $$var style or variable-variable call with POST/GET
+        $dyn2 = /\$\$\w+\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/
+        $dyn3 = /\$\w+\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)\s*\[/
+    condition:
+        $php and any of ($dyn*)
+}
+
+rule PHP_Webshell_phpInput_Exec {
+    meta:
+        description = "PHP webshell: eval or include of php://input stream"
+        severity    = "critical"
+    strings:
+        $a = /eval\s*\(\s*file_get_contents\s*\(\s*['"]php:\/\/input['"]/i
+        $b = /include\s*\(\s*['"]php:\/\/input['"]/i
+        $c = /require\s*\(\s*['"]php:\/\/input['"]/i
+        $d = /fopen\s*\(\s*['"]php:\/\/input['"]/i
+    condition:
+        any of them
+}
+
+// ─── LFI / RFI patterns ───────────────────────────────────────────────────────
+
+rule PHP_LFI_User_Controlled_Include {
+    meta:
+        description = "PHP local/remote file inclusion with user-supplied path"
+        severity    = "high"
+    strings:
+        $lfi1 = /include\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+        $lfi2 = /include_once\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+        $lfi3 = /require\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+        $lfi4 = /require_once\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)/i
+    condition:
+        any of them
+}
+
+// ─── PHP embedded in image files ─────────────────────────────────────────────
+
+rule PHP_In_Image_File {
+    meta:
+        description = "PHP code hidden inside image file (GIF/PNG/JPEG polyglot)"
+        severity    = "critical"
+    strings:
+        $gif  = { 47 49 46 38 }                  // GIF8
+        $png  = { 89 50 4e 47 0d 0a 1a 0a }      // PNG magic
+        $jpg  = { ff d8 ff }                       // JPEG SOI
+        $php1 = "<?php"
+        $php2 = "<?"
+    condition:
+        (1 of ($gif, $png, $jpg)) at 0 and (1 of ($php*))
+}
+
+// ─── Obfuscation techniques ───────────────────────────────────────────────────
+
+rule PHP_Obfusc_Chr_Construction {
+    meta:
+        description = "PHP obfuscation: function names built via chr() calls"
+        severity    = "high"
+    strings:
+        $php  = "<?php"
+        // 8+ chr() calls is a strong indicator of name construction
+        $c1 = "chr(" $c2 = "chr(" $c3 = "chr(" $c4 = "chr("
+        $c5 = "chr(" $c6 = "chr(" $c7 = "chr(" $c8 = "chr("
+    condition:
+        $php and #c1 >= 8
+}
+
+rule PHP_Obfusc_Concat_FuncName {
+    meta:
+        description = "PHP obfuscation: function name split across string concatenation to evade grep"
+        severity    = "high"
+    strings:
+        $e1 = "'ev'.'al'"   nocase
+        $e2 = "\"ev\".\"al\""  nocase
+        $s1 = "'sys'.'tem'"  nocase
+        $s2 = "\"sys\".\"tem\""  nocase
+        $a1 = "'ass'.'ert'"  nocase
+        $a2 = "\"ass\".\"ert\""  nocase
+        $b1 = "'base'.'64_decode'"  nocase
+        $b2 = "'bas'.'e64'"  nocase
+        $x1 = "'she'.'ll_exec'"  nocase
+        $x2 = "'shel'.'l_exec'"  nocase
+    condition:
+        any of them
+}
+
+rule PHP_Obfusc_HexOctal_FuncName {
+    meta:
+        description = "PHP obfuscation: function names encoded as hex (\\x65\\x76\\x61\\x6c) or octal escapes"
+        severity    = "high"
+    strings:
+        // \x65\x76\x61\x6c = eval
+        $hex_eval   = "\\x65\\x76\\x61\\x6c"
+        // \x73\x79\x73\x74\x65\x6d = system
+        $hex_sys    = "\\x73\\x79\\x73\\x74\\x65\\x6d"
+        // \x61\x73\x73\x65\x72\x74 = assert
+        $hex_assert = "\\x61\\x73\\x73\\x65\\x72\\x74"
+        // octal \145\166\141\154 = eval
+        $oct_eval   = "\\145\\166\\141\\154"
+        // any long hex escape sequence (5+ \xNN groups) — generic obfuscation indicator
+        $long_hex   = /(\\\x78[0-9a-fA-F]{2}){5,}/
+    condition:
+        any of ($hex_eval, $hex_sys, $hex_assert, $oct_eval) or $long_hex
+}
+
+rule PHP_Obfusc_Goto_Spaghetti {
+    meta:
+        description = "PHP obfuscation: excessive goto statements used to obfuscate control flow"
+        severity    = "high"
+    strings:
+        $php  = "<?php"
+        $g1 = "goto " $g2 = "goto " $g3 = "goto " $g4 = "goto "
+        $g5 = "goto " $g6 = "goto " $g7 = "goto " $g8 = "goto "
+        $g9 = "goto " $g10 = "goto "
+    condition:
+        $php and #g1 >= 10
+}
+
+// ─── Self-deleting / in-memory execution ─────────────────────────────────────
+
+rule PHP_Webshell_Self_Delete {
+    meta:
+        description = "PHP file that deletes itself after execution (anti-forensic dropper)"
+        severity    = "critical"
+    strings:
+        $php   = "<?php"
+        $self1 = "unlink(__FILE__)"
+        $self2 = /unlink\s*\(\s*\$_(SERVER|ENV)\s*\[.*(SCRIPT_FILENAME|PHP_SELF)/i
+        $self3 = /unlink\s*\(\s*__FILE__\s*\)/
+    condition:
+        $php and any of ($self*)
+}
+
+rule PHP_Dropper_Tmpfile_Execute_Delete {
+    meta:
+        description = "PHP dropper writing to /proc/self/fd or /dev/fd trick for fileless execution"
+        severity    = "critical"
+    strings:
+        $php  = "<?php"
+        $fd1  = "/proc/self/fd"
+        $fd2  = "/dev/fd/"
+        $exec = /include|eval|require/
+    condition:
+        $php and (1 of ($fd*)) and $exec
+}
