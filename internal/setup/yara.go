@@ -253,7 +253,88 @@ func extractBinaryFromGz(archivePath, binaryName string) (string, error) {
 	}
 	defer gz.Close()
 
-	return writeTmp(gz, binaryName)
+	// Decompress to a temp file first so we can probe the content type.
+	tmp, err := os.CreateTemp("", binaryName+"-gz-*")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := io.Copy(tmp, gz); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	tmp.Close()
+
+	// Probe: if the decompressed content is a tar archive, extract from it.
+	// POSIX tar magic sits at offset 257 ("ustar"); GNU tar uses the same offset.
+	if isTar(tmpName) {
+		return extractBinaryFromTar(tmpName, binaryName)
+	}
+
+	// Plain binary — just move the temp file.
+	out, err := os.CreateTemp("", binaryName+"-*")
+	if err != nil {
+		return "", err
+	}
+	outName := out.Name()
+	src, err := os.Open(tmpName)
+	if err != nil {
+		out.Close()
+		os.Remove(outName)
+		return "", err
+	}
+	_, err = io.Copy(out, src)
+	src.Close()
+	out.Close()
+	if err != nil {
+		os.Remove(outName)
+		return "", err
+	}
+	return outName, nil
+}
+
+// isTar checks for a tar archive by looking for "ustar" magic at offset 257.
+func isTar(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if _, err := f.Seek(257, io.SeekStart); err != nil {
+		return false
+	}
+	magic := make([]byte, 5)
+	if _, err := io.ReadFull(f, magic); err != nil {
+		return false
+	}
+	return string(magic) == "ustar"
+}
+
+// extractBinaryFromTar extracts binaryName from an uncompressed tar archive.
+func extractBinaryFromTar(tarPath, binaryName string) (string, error) {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		base := filepath.Base(hdr.Name)
+		if base == binaryName || base == binaryName+".exe" {
+			return writeTmp(tr, binaryName)
+		}
+	}
+	return "", fmt.Errorf("%q not found in tar archive", binaryName)
 }
 
 func extractBinaryFromZip(archivePath, binaryName string) (string, error) {
