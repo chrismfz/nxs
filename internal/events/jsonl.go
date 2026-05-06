@@ -10,10 +10,17 @@ import (
 	"time"
 )
 
+// JSONLWriter appends findings to a JSONL log.
+//
+// Mutual exclusion between the daemon and concurrent `nxs scan` processes is
+// handled via a per-write advisory lock on a sidecar .lock file.  The lock is
+// held only for the duration of each Write call so that multiple processes can
+// coexist without blocking each other at open time.
 type JSONLWriter struct {
-	path string
-	f    *os.File
-	w    *bufio.Writer
+	path     string
+	lockPath string
+	f        *os.File
+	w        *bufio.Writer
 }
 
 func NewJSONLWriter(path string) (*JSONLWriter, error) {
@@ -24,11 +31,12 @@ func NewJSONLWriter(path string) (*JSONLWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("findings log locked by another process: %w", err)
-	}
-	return &JSONLWriter{path: path, f: f, w: bufio.NewWriter(f)}, nil
+	return &JSONLWriter{
+		path:     path,
+		lockPath: path + ".lock",
+		f:        f,
+		w:        bufio.NewWriter(f),
+	}, nil
 }
 
 func (jw *JSONLWriter) Write(f *Finding) error {
@@ -37,6 +45,19 @@ func (jw *JSONLWriter) Write(f *Finding) error {
 	if err != nil {
 		return err
 	}
+
+	lf, err := os.OpenFile(jw.lockPath, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return fmt.Errorf("findings lock: %w", err)
+	}
+	defer lf.Close()
+
+	// Blocking lock — wait for other writers to finish, then proceed.
+	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("findings lock acquire: %w", err)
+	}
+	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN) //nolint:errcheck
+
 	jw.w.Write(b)
 	jw.w.WriteByte('\n')
 	if err := jw.w.Flush(); err != nil {
@@ -46,7 +67,6 @@ func (jw *JSONLWriter) Write(f *Finding) error {
 }
 
 func (jw *JSONLWriter) Close() error {
-	_ = syscall.Flock(int(jw.f.Fd()), syscall.LOCK_UN)
 	return jw.f.Close()
 }
 
