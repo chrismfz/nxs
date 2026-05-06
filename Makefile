@@ -109,6 +109,8 @@ stage-pkgroot: build
 	@[ -f $(PKGROOT)/etc/nxs/nxs.conf ] || cp -f $(CONFIG_DIR)/nxs.conf $(PKGROOT)/etc/nxs/
 	@cp -f $(CONFIG_DIR)/nxs.conf.example  $(PKGROOT)/usr/share/nxs/configs/
 	@cp -f $(CONFIG_DIR)/hashdb.csv        $(PKGROOT)/usr/share/nxs/configs/
+	@find $(CONFIG_DIR)/signatures -maxdepth 1 \( -name '*.yar' -o -name '*.yara' \) \
+		-exec install -m0644 {} $(PKGROOT)/usr/share/nxs/signatures/ \;
 
 stage-rpm: stage-pkgroot
 	@echo "→ Ensuring RPM systemd unit path"
@@ -136,6 +138,8 @@ deb: build ## Build .deb package
 	@install -m0640 "$(CONFIG_DIR)/nxs.conf"         "$(PKGROOT)/etc/nxs/nxs.conf"
 	@install -m0640 "$(CONFIG_DIR)/nxs.conf.example" "$(PKGROOT)/usr/share/nxs/configs/"
 	@install -m0640 "$(CONFIG_DIR)/hashdb.csv"        "$(PKGROOT)/usr/share/nxs/configs/"
+	@find $(CONFIG_DIR)/signatures -maxdepth 1 \( -name '*.yar' -o -name '*.yara' \) \
+		-exec install -m0644 {} "$(PKGROOT)/usr/share/nxs/signatures/" \;
 	@chmod 0755 "$(PKGROOT)/DEBIAN/postinst" "$(PKGROOT)/DEBIAN/prerm" "$(PKGROOT)/DEBIAN/postrm" 2>/dev/null || true
 	@fakeroot dpkg-deb --build "$(PKGROOT)" "$(OUTDIR)/nxs_$(VERSION)-1_$(ARCH).deb"
 	@echo "📦 Built: $(OUTDIR)/nxs_$(VERSION)-1_$(ARCH).deb"
