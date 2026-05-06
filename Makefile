@@ -135,7 +135,7 @@ deb: build ## Build .deb package
 	@sed -i "s/^Version:.*/Version: $(VERSION)-1/" "$(PKGROOT)/DEBIAN/control"
 	@install -m0755 "$(BIN)"     "$(PKGROOT)/usr/bin/nxs"
 	@install -m0644 "$(SERVICE)" "$(PKGROOT)/lib/systemd/system/nxs.service"
-	@install -m0640 "$(CONFIG_DIR)/nxs.conf"         "$(PKGROOT)/etc/nxs/nxs.conf"
+	@install -m0600 "$(CONFIG_DIR)/nxs.conf"         "$(PKGROOT)/etc/nxs/nxs.conf"
 	@install -m0640 "$(CONFIG_DIR)/nxs.conf.example" "$(PKGROOT)/usr/share/nxs/configs/"
 	@install -m0640 "$(CONFIG_DIR)/hashdb.csv"        "$(PKGROOT)/usr/share/nxs/configs/"
 	@find $(CONFIG_DIR)/signatures -maxdepth 1 \( -name '*.yar' -o -name '*.yara' \) \
