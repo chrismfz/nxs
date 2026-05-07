@@ -94,9 +94,13 @@ func (e *Engine) reload() error {
 	yara := NewYARAScanner(e.cfg, e.log)
 
 	e.mu.Lock()
+	oldYARA := e.yara
 	e.hashIdx = idx
 	e.ac = BuildACMatcher(acSigs)
 	e.yara = yara
 	e.mu.Unlock()
+	if oldYARA != nil {
+		oldYARA.Close()
+	}
 	return nil
 }
