@@ -85,7 +85,7 @@ func New(cfg *config.Config, log *logging.Logger) (*Engine, error) {
 				for k, v := range extra.bySHA256 {
 					idx.bySHA256[k] = v
 				}
-			// .yar/.yara are handled by YARAScanner below
+				// .yar/.yara are handled by YARAScanner below
 			}
 		}
 	}
@@ -97,6 +97,15 @@ func New(cfg *config.Config, log *logging.Logger) (*Engine, error) {
 	e := &Engine{cfg: cfg, log: log, hashIdx: idx, ac: ac, yara: yara}
 	e.stats.reset()
 	return e, nil
+}
+
+// Close releases engine-owned resources such as temporary YARA preflight files.
+func (e *Engine) Close() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.yara != nil {
+		e.yara.Close()
+	}
 }
 
 // ScanFile scans a single file and returns any findings.
@@ -305,10 +314,10 @@ func detectExecutable(path string, info os.FileInfo) []*events.Finding {
 		label+" found in scan path: "+path)
 	finding.Path = path
 	finding.Evidence = map[string]any{
-		"magic":     fmt.Sprintf("%02x%02x%02x%02x", magic[0], magic[1], magic[2], magic[3]),
-		"size":      info.Size(),
-		"mode":      info.Mode().String(),
-		"label":     label,
+		"magic": fmt.Sprintf("%02x%02x%02x%02x", magic[0], magic[1], magic[2], magic[3]),
+		"size":  info.Size(),
+		"mode":  info.Mode().String(),
+		"label": label,
 	}
 	return []*events.Finding{finding}
 }

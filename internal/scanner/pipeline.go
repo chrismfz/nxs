@@ -64,6 +64,9 @@ func NewPipeline(cfg *config.Config, log *logging.Logger) (*Pipeline, error) {
 }
 
 func (p *Pipeline) Close() {
+	if p.eng != nil {
+		p.eng.Close()
+	}
 	if p.writer != nil {
 		_ = p.writer.Close()
 	}

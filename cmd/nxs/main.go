@@ -494,13 +494,17 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Println("  hint   : run `nxs signatures update` to install")
 		}
 		fmt.Println("── signatures ───────────────────────────────")
-		nbFiles, _ := setup.CountRuleFiles(bundledDir)
-		nbRules, _ := setup.CountRules(bundledDir)
+		bundledFiles := setup.CollectYARFiles(bundledDir)
+		sigYARFiles := setup.CollectYARFiles(sigDir)
+		preflightFiles := append(append([]string{}, bundledFiles...), sigYARFiles...)
+		preflight, _ := setup.PreflightYARRules(preflightFiles)
+		nbFiles := len(bundledFiles)
+		nbRules := countReportRulesForDir(preflight, bundledDir)
 		if nbFiles > 0 {
 			fmt.Printf("  bundled: %s (%d .yar/.yara, %d rules)\n", bundledDir, nbFiles, nbRules)
 		}
-		nFiles, _ := setup.CountRuleFiles(sigDir)
-		nRules, _ := setup.CountRules(sigDir)
+		nFiles := len(sigYARFiles)
+		nRules := countReportRulesForDir(preflight, sigDir)
 		nHDB, _ := setup.CountSigFiles(sigDir, ".hdb", ".hsb")
 		nNDB, _ := setup.CountSigFiles(sigDir, ".ndb")
 		nSig, _ := setup.CountSigFiles(sigDir, ".sig")
@@ -526,7 +530,17 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Printf("  sig_dir: %s (empty or missing)\n", sigDir)
 			fmt.Println("  hint   : run `nxs signatures update` to download YARA Forge rules")
 		}
-		fmt.Printf("  total  : %d YARA rules across %d files\n", nbRules+nRules, nbFiles+nFiles)
+		fmt.Printf("  total  : %d YARA rules across %d files\n", preflight.TotalRules, nbFiles+nFiles)
+		fmt.Printf("  active rules     : %d\n", preflight.ActiveRules)
+		fmt.Printf("  duplicate skipped: %d\n", preflight.DuplicateSkipped)
+		fmt.Printf("  parse failed     : %d\n", preflight.ParseFailed)
+		for _, dup := range preflight.Duplicates {
+			fmt.Printf("    skipped duplicate: %s:%d rule=%s original=%s:%d\n",
+				dup.File, dup.Line, dup.Name, dup.OriginalFile, dup.OriginalLine)
+		}
+		for _, failure := range preflight.ParseFailures {
+			fmt.Printf("    parse failed: %s (%s)\n", failure.File, failure.Err)
+		}
 
 	case "setup", "update":
 		fmt.Println("Updating YARA-X and YARA Forge rules...")
@@ -574,6 +588,17 @@ func cmdSignatures(cfg *config.Config, args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: nxs signatures status|update")
 		os.Exit(1)
 	}
+}
+
+func countReportRulesForDir(report setup.YARAPreflightReport, dir string) int {
+	n := 0
+	cleanDir := filepath.Clean(dir)
+	for _, decl := range report.Declarations {
+		if filepath.Dir(decl.File) == cleanDir {
+			n++
+		}
+	}
+	return n
 }
 
 // writePIDFile atomically writes the current process PID to path.

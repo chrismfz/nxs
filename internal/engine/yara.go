@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/chrismfz/nxs/internal/config"
 	"github.com/chrismfz/nxs/internal/events"
 	"github.com/chrismfz/nxs/internal/logging"
+	"github.com/chrismfz/nxs/internal/setup"
 )
 
 // yaraXResult is one NDJSON line from `yr scan --output-format=ndjson`.
@@ -29,8 +31,8 @@ type yaraXRule struct {
 }
 
 type yaraXPattern struct {
-	Identifier string        `json:"identifier"`
-	Matches    []yaraXMatch  `json:"matches"`
+	Identifier string       `json:"identifier"`
+	Matches    []yaraXMatch `json:"matches"`
 }
 
 type yaraXMatch struct {
@@ -48,6 +50,7 @@ const yaraBundledDir = "/usr/share/nxs/signatures"
 type YARAScanner struct {
 	binary    string
 	ruleFiles []string // explicit .yar/.yara file paths passed to yr
+	tempDir   string   // filtered rule copies created by the preflight step
 	log       *logging.Logger
 	enabled   bool
 }
@@ -81,136 +84,107 @@ func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
 		return &YARAScanner{}
 	}
 
-	// Remove files that cause duplicate-rule compile errors so yr doesn't
-	// fail the entire scan. Bundled files (loaded first) win on conflicts.
-	files = buildCompatibleRuleSet(binary, files, log)
-	if len(files) == 0 {
-		log.Warn("yara-x: all rule files were dropped due to conflicts — YARA tier disabled")
+	preflight, err := setup.PreflightYARRules(files)
+	if err != nil {
+		log.Warn("yara-x: rule preflight failed", "err", err)
+	}
+	for _, dup := range preflight.Duplicates {
+		log.Warn("yara-x: skipping duplicate rule",
+			"path", dup.File,
+			"rule", dup.Name,
+			"original", dup.OriginalFile)
+	}
+	for _, failure := range preflight.ParseFailures {
+		log.Warn("yara-x: rule preflight parse failed", "path", failure.File, "err", failure.Err)
+	}
+
+	activeFiles, tempDir := files, ""
+	if preflight.DuplicateSkipped > 0 || preflight.ParseFailed > 0 {
+		activeFiles, tempDir, err = buildPreflightRuleFiles(files, preflight, log)
+		if err != nil {
+			log.Warn("yara-x: failed to build duplicate-filtered rule set", "err", err)
+		} else {
+			files = activeFiles
+		}
+	}
+
+	if preflight.ActiveRules == 0 {
+		log.Warn("yara-x: no active rules after preflight — YARA tier disabled")
+		if tempDir != "" {
+			_ = os.RemoveAll(tempDir)
+		}
 		return &YARAScanner{}
 	}
 
-	log.Info("yara-x scanner ready", "binary", binary, "rule_files", len(files))
+	log.Info("yara-x scanner ready",
+		"binary", binary,
+		"rule_files", len(files),
+		"active_rules", preflight.ActiveRules,
+		"duplicate_skipped", preflight.DuplicateSkipped,
+		"parse_failed", preflight.ParseFailed)
 	return &YARAScanner{
 		binary:    binary,
 		ruleFiles: files,
+		tempDir:   tempDir,
 		log:       log,
 		enabled:   true,
 	}
 }
 
-// buildCompatibleRuleSet probes yr and iteratively removes files that cause
-// duplicate-rule (E012) errors, keeping the first-seen declaration in each
-// conflict. Bundled files are listed first so they win over downloaded ones.
-func buildCompatibleRuleSet(binary string, files []string, log *logging.Logger) []string {
-	// Probe target: yr needs a file to scan even for compile testing.
-	// /proc/version is always present on Linux; use it as a dummy target.
-	probe := "/proc/version"
-	if _, err := os.Stat(probe); err != nil {
-		// Fallback: create a tiny temp file.
-		tmp, err2 := os.CreateTemp("", "yr-probe-*")
-		if err2 != nil {
-			return files
-		}
-		tmp.Close()
-		defer os.Remove(tmp.Name())
-		probe = tmp.Name()
+// buildPreflightRuleFiles creates filtered temporary copies for any source file
+// with duplicate declarations so yr can compile the first occurrence of each
+// rule name without dropping the rest of a colliding .yar/.yara file.
+func buildPreflightRuleFiles(files []string, report setup.YARAPreflightReport, log *logging.Logger) ([]string, string, error) {
+	tmpDir, err := os.MkdirTemp("", "nxs-yara-rules-*")
+	if err != nil {
+		return files, "", err
 	}
-
-	for attempt := 0; attempt < 20; attempt++ {
-		args := append([]string{"scan", "--output-format=ndjson"}, files...)
-		args = append(args, probe)
-		cmd := exec.Command(binary, args...)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		cmd.Run()
-
-		errText := stderr.String()
-		if !strings.Contains(errText, "error[E012]") {
-			return files // no duplicate-rule errors
-		}
-
-		toSkip := parseDuplicateFiles(errText)
-		if len(toSkip) == 0 {
-			return files
-		}
-
-		var kept, dropped []string
-		for _, f := range files {
-			if toSkip[f] {
-				dropped = append(dropped, f)
-			} else {
-				kept = append(kept, f)
-			}
-		}
-		log.Warn("yara-x: skipping rule files with duplicate rule names",
-			"dropped", strings.Join(dropped, ", "))
-		files = kept
-		if len(files) == 0 {
-			return nil
+	hasSkipped := make(map[string]bool)
+	for _, decl := range report.Declarations {
+		if decl.Skipped {
+			hasSkipped[decl.File] = true
 		}
 	}
-	return files
-}
+	parseFailed := make(map[string]bool)
+	for _, failure := range report.ParseFailures {
+		parseFailed[failure.File] = true
+	}
 
-// parseDuplicateFiles extracts the set of file paths that are the *later*
-// (duplicate) declaration in E012 errors. These are the files to drop.
-//
-// yr error format:
-//
-//	error[E012]: duplicate rule `name`
-//	    --> /path/to/file.yar:LINE:COL
-func parseDuplicateFiles(errText string) map[string]bool {
-	out := make(map[string]bool)
-	lines := strings.Split(errText, "\n")
-	for i, line := range lines {
-		if !strings.Contains(line, "error[E012]") {
+	active := make([]string, 0, len(files))
+	for i, file := range files {
+		if parseFailed[file] {
+			log.Warn("yara-x: skipping rule file with preflight parse failure", "path", file)
 			continue
 		}
-		// Find the next line containing "-->"
-		for j := i + 1; j < len(lines) && j < i+5; j++ {
-			trimmed := strings.TrimSpace(lines[j])
-			if !strings.HasPrefix(trimmed, "-->") {
-				continue
-			}
-			// Format: "--> /path/to/file.yar:LINE:COL"
-			rest := strings.TrimPrefix(trimmed, "-->")
-			rest = strings.TrimSpace(rest)
-			// Strip the :LINE:COL suffix
-			if colon := strings.LastIndex(rest, ":"); colon > 0 {
-				rest = rest[:colon]
-			}
-			if colon := strings.LastIndex(rest, ":"); colon > 0 {
-				rest = rest[:colon]
-			}
-			if rest != "" {
-				out[rest] = true
-			}
-			break
+		if !hasSkipped[file] {
+			active = append(active, file)
+			continue
 		}
+		filtered := filepath.Join(tmpDir, fmt.Sprintf("%03d-%s", i, filepath.Base(file)))
+		if err := setup.FilterYARRuleFile(file, filtered, report.Declarations); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return files, "", err
+		}
+		active = append(active, filtered)
+		log.Info("yara-x: using preflight-filtered rule file", "source", file, "filtered", filtered)
 	}
-	return out
+	return active, tmpDir, nil
 }
 
 // collectYARFiles returns the paths of all .yar/.yara files directly in dir.
 func collectYARFiles(dir string) []string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && isYARFile(e.Name()) {
-			out = append(out, dir+"/"+e.Name())
-		}
-	}
-	return out
-}
-
-func isYARFile(name string) bool {
-	return strings.HasSuffix(name, ".yar") || strings.HasSuffix(name, ".yara")
+	return setup.CollectYARFiles(dir)
 }
 
 func (s *YARAScanner) Enabled() bool { return s.enabled }
+
+// Close removes any temporary preflight-filtered rule files.
+func (s *YARAScanner) Close() {
+	if s != nil && s.tempDir != "" {
+		_ = os.RemoveAll(s.tempDir)
+		s.tempDir = ""
+	}
+}
 
 // ScanFile runs yr against a single file and returns findings for each matching rule.
 func (s *YARAScanner) ScanFile(path string) ([]*events.Finding, error) {
