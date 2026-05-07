@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/chrismfz/nxs/internal/config"
@@ -47,12 +48,20 @@ const yaraBundledDir = "/usr/share/nxs/signatures"
 
 // YARAScanner wraps the yr binary via subprocess.
 // It degrades gracefully when yr or rule files are absent.
+type yaraRuleFile struct {
+	Path         string
+	OriginalPath string
+	Source       string
+	Namespace    string
+}
+
 type YARAScanner struct {
-	binary    string
-	ruleFiles []string // explicit .yar/.yara file paths passed to yr
-	tempDir   string   // filtered rule copies created by the preflight step
-	log       *logging.Logger
-	enabled   bool
+	binary           string
+	ruleFiles        []yaraRuleFile // explicit .yar/.yara files passed to yr
+	namespaceSupport bool
+	tempDir          string // filtered rule copies created by the preflight step
+	log              *logging.Logger
+	enabled          bool
 }
 
 func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
@@ -74,9 +83,9 @@ func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
 	// Collect .yar/.yara files from bundled dir and SIG_DIR explicitly.
 	// We pass file paths rather than dirs so that yr never tries to parse
 	// .hdb/.sig/etc files as YARA rules.
-	var files []string
-	files = append(files, collectYARFiles(yaraBundledDir)...)
-	files = append(files, collectYARFiles(cfg.Engine.SigDir)...)
+	var files []yaraRuleFile
+	files = append(files, collectYARFiles(yaraBundledDir, "bundled", "bundled")...)
+	files = append(files, collectYARFiles(cfg.Engine.SigDir, "local", "local")...)
 
 	if len(files) == 0 {
 		log.Info("yara-x: no .yar/.yara files found — YARA tier disabled",
@@ -84,7 +93,8 @@ func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
 		return &YARAScanner{}
 	}
 
-	preflight, err := setup.PreflightYARRules(files)
+	namespaceSupport := yrSupportsRuleNamespaces(binary, log)
+	preflight, err := preflightYARRuleFiles(files, namespaceSupport)
 	if err != nil {
 		log.Warn("yara-x: rule preflight failed", "err", err)
 	}
@@ -121,20 +131,23 @@ func NewYARAScanner(cfg *config.Config, log *logging.Logger) *YARAScanner {
 		"rule_files", len(files),
 		"active_rules", preflight.ActiveRules,
 		"duplicate_skipped", preflight.DuplicateSkipped,
-		"parse_failed", preflight.ParseFailed)
+		"parse_failed", preflight.ParseFailed,
+		"namespaces", formatNamespaceRuleCounts(namespaceRuleCounts(files, preflight)),
+		"namespace_args", namespaceSupport)
 	return &YARAScanner{
-		binary:    binary,
-		ruleFiles: files,
-		tempDir:   tempDir,
-		log:       log,
-		enabled:   true,
+		binary:           binary,
+		ruleFiles:        files,
+		namespaceSupport: namespaceSupport,
+		tempDir:          tempDir,
+		log:              log,
+		enabled:          true,
 	}
 }
 
 // buildPreflightRuleFiles creates filtered temporary copies for any source file
 // with duplicate declarations so yr can compile the first occurrence of each
 // rule name without dropping the rest of a colliding .yar/.yara file.
-func buildPreflightRuleFiles(files []string, report setup.YARAPreflightReport, log *logging.Logger) ([]string, string, error) {
+func buildPreflightRuleFiles(files []yaraRuleFile, report setup.YARAPreflightReport, log *logging.Logger) ([]yaraRuleFile, string, error) {
 	tmpDir, err := os.MkdirTemp("", "nxs-yara-rules-*")
 	if err != nil {
 		return files, "", err
@@ -150,30 +163,154 @@ func buildPreflightRuleFiles(files []string, report setup.YARAPreflightReport, l
 		parseFailed[failure.File] = true
 	}
 
-	active := make([]string, 0, len(files))
+	active := make([]yaraRuleFile, 0, len(files))
 	for i, file := range files {
-		if parseFailed[file] {
-			log.Warn("yara-x: skipping rule file with preflight parse failure", "path", file)
+		if parseFailed[file.Path] {
+			log.Warn("yara-x: skipping rule file with preflight parse failure", "path", file.Path, "namespace", file.Namespace)
 			continue
 		}
-		if !hasSkipped[file] {
+		if !hasSkipped[file.Path] {
 			active = append(active, file)
 			continue
 		}
-		filtered := filepath.Join(tmpDir, fmt.Sprintf("%03d-%s", i, filepath.Base(file)))
-		if err := setup.FilterYARRuleFile(file, filtered, report.Declarations); err != nil {
+		filtered := filepath.Join(tmpDir, fmt.Sprintf("%03d-%s", i, filepath.Base(file.Path)))
+		if err := setup.FilterYARRuleFile(file.Path, filtered, report.Declarations); err != nil {
 			_ = os.RemoveAll(tmpDir)
 			return files, "", err
 		}
-		active = append(active, filtered)
-		log.Info("yara-x: using preflight-filtered rule file", "source", file, "filtered", filtered)
+		active = append(active, yaraRuleFile{Path: filtered, OriginalPath: file.OriginalPath, Source: file.Source, Namespace: file.Namespace})
+		log.Info("yara-x: using preflight-filtered rule file", "source", file.Path, "filtered", filtered, "namespace", file.Namespace)
 	}
 	return active, tmpDir, nil
 }
 
-// collectYARFiles returns the paths of all .yar/.yara files directly in dir.
-func collectYARFiles(dir string) []string {
-	return setup.CollectYARFiles(dir)
+// preflightYARRuleFiles scans rules in either their planned yr namespaces or, when
+// the installed yr cannot namespace individual rule paths, one shared namespace.
+func preflightYARRuleFiles(files []yaraRuleFile, namespaceSupport bool) (setup.YARAPreflightReport, error) {
+	if !namespaceSupport {
+		return setup.PreflightYARRules(ruleFilePaths(files))
+	}
+
+	var merged setup.YARAPreflightReport
+	groups := make(map[string][]string)
+	var order []string
+	for _, file := range files {
+		if _, ok := groups[file.Namespace]; !ok {
+			order = append(order, file.Namespace)
+		}
+		groups[file.Namespace] = append(groups[file.Namespace], file.Path)
+	}
+	for _, namespace := range order {
+		report, err := setup.PreflightYARRules(groups[namespace])
+		if err != nil {
+			return merged, err
+		}
+		mergeYARAPreflightReport(&merged, report)
+	}
+	merged.Files = len(files)
+	return merged, nil
+}
+
+func mergeYARAPreflightReport(dst *setup.YARAPreflightReport, src setup.YARAPreflightReport) {
+	dst.TotalRules += src.TotalRules
+	dst.ActiveRules += src.ActiveRules
+	dst.DuplicateSkipped += src.DuplicateSkipped
+	dst.ParseFailed += src.ParseFailed
+	dst.Declarations = append(dst.Declarations, src.Declarations...)
+	dst.Duplicates = append(dst.Duplicates, src.Duplicates...)
+	dst.ParseFailures = append(dst.ParseFailures, src.ParseFailures...)
+}
+
+func ruleFilePaths(files []yaraRuleFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
+}
+
+// collectYARFiles returns metadata for all .yar/.yara files directly in dir.
+func collectYARFiles(dir, source, namespace string) []yaraRuleFile {
+	paths := setup.CollectYARFiles(dir)
+	out := make([]yaraRuleFile, 0, len(paths))
+	for _, path := range paths {
+		fileSource := source
+		fileNamespace := namespace
+		if fileSource == "local" {
+			fileSource, fileNamespace = inferYARASource(path)
+		}
+		out = append(out, yaraRuleFile{Path: path, OriginalPath: path, Source: fileSource, Namespace: fileNamespace})
+	}
+	return out
+}
+
+func inferYARASource(path string) (string, string) {
+	name := strings.ToLower(filepath.Base(path))
+	dir := strings.ToLower(filepath.Base(filepath.Dir(path)))
+	joined := dir + "/" + name
+	switch {
+	case strings.Contains(joined, "yara-forge") || strings.Contains(joined, "yara_forge") || strings.Contains(name, "yara-rules-"):
+		return "yara_forge", "yara_forge"
+	case strings.Contains(joined, "malwarebazaar") || strings.Contains(joined, "malware-bazaar") || strings.Contains(joined, "abuse_ch") || strings.Contains(joined, "abuse.ch"):
+		return "malwarebazaar", "malwarebazaar"
+	default:
+		return "local", "local"
+	}
+}
+
+func yrSupportsRuleNamespaces(binary string, log *logging.Logger) bool {
+	cmd := exec.Command(binary, "scan", "--help")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	_ = cmd.Run()
+	help := out.String()
+	ok := strings.Contains(help, "[NAMESPACE:]") || strings.Contains(help, "--path-as-namespace")
+	if !ok {
+		log.Warn("yara-x: yr CLI does not advertise per-rule-file namespaces; duplicate filtering fallback enabled")
+	}
+	return ok
+}
+
+func namespaceRuleCounts(files []yaraRuleFile, report setup.YARAPreflightReport) map[string]int {
+	byPath := make(map[string]string, len(files)*2)
+	for _, file := range files {
+		byPath[file.Path] = file.Namespace
+		byPath[file.OriginalPath] = file.Namespace
+	}
+	counts := make(map[string]int)
+	for _, decl := range report.Declarations {
+		if decl.Skipped {
+			continue
+		}
+		if namespace := byPath[decl.File]; namespace != "" {
+			counts[namespace]++
+		}
+	}
+	return counts
+}
+
+func formatNamespaceRuleCounts(counts map[string]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	namespaces := make([]string, 0, len(counts))
+	for namespace := range counts {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	parts := make([]string, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		parts = append(parts, fmt.Sprintf("%s=%d", namespace, counts[namespace]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func (f yaraRuleFile) ScanArg(namespaceSupport bool) string {
+	if namespaceSupport && f.Namespace != "" {
+		return f.Namespace + ":" + f.Path
+	}
+	return f.Path
 }
 
 func (s *YARAScanner) Enabled() bool { return s.enabled }
@@ -202,7 +339,9 @@ func (s *YARAScanner) ScanFile(path string) ([]*events.Finding, error) {
 		"--print-tags",
 		"--print-strings=120",
 	}
-	args = append(args, s.ruleFiles...)
+	for _, ruleFile := range s.ruleFiles {
+		args = append(args, ruleFile.ScanArg(s.namespaceSupport))
+	}
 	args = append(args, path)
 	cmd := exec.Command(s.binary, args...)
 
