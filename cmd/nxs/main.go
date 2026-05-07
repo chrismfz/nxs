@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -496,8 +498,12 @@ func cmdSignatures(cfg *config.Config, args []string) {
 		fmt.Println("── signatures ───────────────────────────────")
 		bundledFiles := setup.CollectYARFiles(bundledDir)
 		sigYARFiles := setup.CollectYARFiles(sigDir)
-		preflightFiles := append(append([]string{}, bundledFiles...), sigYARFiles...)
-		preflight, _ := setup.PreflightYARRules(preflightFiles)
+		statusFiles := collectStatusYARFiles(bundledFiles, sigYARFiles)
+		namespaceSupport := false
+		if yrPath, err := setup.LookupYR(yaraBin); err == nil {
+			namespaceSupport = statusYRSupportsRuleNamespaces(yrPath)
+		}
+		preflight, _ := preflightStatusYARRules(statusFiles, namespaceSupport)
 		nbFiles := len(bundledFiles)
 		nbRules := countReportRulesForDir(preflight, bundledDir)
 		if nbFiles > 0 {
@@ -531,6 +537,8 @@ func cmdSignatures(cfg *config.Config, args []string) {
 			fmt.Println("  hint   : run `nxs signatures update` to download YARA Forge rules")
 		}
 		fmt.Printf("  total  : %d YARA rules across %d files\n", preflight.TotalRules, nbFiles+nFiles)
+		fmt.Printf("  namespaces       : %s\n", formatStatusNamespaceRuleCounts(statusNamespaceRuleCounts(statusFiles, preflight)))
+		fmt.Printf("  namespace args   : %t\n", namespaceSupport)
 		fmt.Printf("  active rules     : %d\n", preflight.ActiveRules)
 		fmt.Printf("  duplicate skipped: %d\n", preflight.DuplicateSkipped)
 		fmt.Printf("  parse failed     : %d\n", preflight.ParseFailed)
@@ -588,6 +596,115 @@ func cmdSignatures(cfg *config.Config, args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: nxs signatures status|update")
 		os.Exit(1)
 	}
+}
+
+type statusYARAFile struct {
+	Path      string
+	Namespace string
+}
+
+func collectStatusYARFiles(bundledFiles, sigYARFiles []string) []statusYARAFile {
+	files := make([]statusYARAFile, 0, len(bundledFiles)+len(sigYARFiles))
+	for _, path := range bundledFiles {
+		files = append(files, statusYARAFile{Path: path, Namespace: "bundled"})
+	}
+	for _, path := range sigYARFiles {
+		_, namespace := inferStatusYARASource(path)
+		files = append(files, statusYARAFile{Path: path, Namespace: namespace})
+	}
+	return files
+}
+
+func preflightStatusYARRules(files []statusYARAFile, namespaceSupport bool) (setup.YARAPreflightReport, error) {
+	if !namespaceSupport {
+		paths := make([]string, 0, len(files))
+		for _, file := range files {
+			paths = append(paths, file.Path)
+		}
+		return setup.PreflightYARRules(paths)
+	}
+
+	var merged setup.YARAPreflightReport
+	groups := make(map[string][]string)
+	var order []string
+	for _, file := range files {
+		if _, ok := groups[file.Namespace]; !ok {
+			order = append(order, file.Namespace)
+		}
+		groups[file.Namespace] = append(groups[file.Namespace], file.Path)
+	}
+	for _, namespace := range order {
+		report, err := setup.PreflightYARRules(groups[namespace])
+		if err != nil {
+			return merged, err
+		}
+		merged.TotalRules += report.TotalRules
+		merged.ActiveRules += report.ActiveRules
+		merged.DuplicateSkipped += report.DuplicateSkipped
+		merged.ParseFailed += report.ParseFailed
+		merged.Declarations = append(merged.Declarations, report.Declarations...)
+		merged.Duplicates = append(merged.Duplicates, report.Duplicates...)
+		merged.ParseFailures = append(merged.ParseFailures, report.ParseFailures...)
+	}
+	merged.Files = len(files)
+	return merged, nil
+}
+
+func inferStatusYARASource(path string) (string, string) {
+	name := strings.ToLower(filepath.Base(path))
+	dir := strings.ToLower(filepath.Base(filepath.Dir(path)))
+	joined := dir + "/" + name
+	switch {
+	case strings.Contains(joined, "yara-forge") || strings.Contains(joined, "yara_forge") || strings.Contains(name, "yara-rules-"):
+		return "yara_forge", "yara_forge"
+	case strings.Contains(joined, "malwarebazaar") || strings.Contains(joined, "malware-bazaar") || strings.Contains(joined, "abuse_ch") || strings.Contains(joined, "abuse.ch"):
+		return "malwarebazaar", "malwarebazaar"
+	default:
+		return "local", "local"
+	}
+}
+
+func statusYRSupportsRuleNamespaces(binary string) bool {
+	cmd := exec.Command(binary, "scan", "--help")
+	var out strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	_ = cmd.Run()
+	help := out.String()
+	return strings.Contains(help, "[NAMESPACE:]") || strings.Contains(help, "--path-as-namespace")
+}
+
+func statusNamespaceRuleCounts(files []statusYARAFile, report setup.YARAPreflightReport) map[string]int {
+	byPath := make(map[string]string, len(files))
+	for _, file := range files {
+		byPath[file.Path] = file.Namespace
+	}
+	counts := make(map[string]int)
+	for _, decl := range report.Declarations {
+		if decl.Skipped {
+			continue
+		}
+		if namespace := byPath[decl.File]; namespace != "" {
+			counts[namespace]++
+		}
+	}
+	return counts
+}
+
+func formatStatusNamespaceRuleCounts(counts map[string]int) string {
+	if len(counts) == 0 {
+		return "none"
+	}
+	namespaces := make([]string, 0, len(counts))
+	for namespace := range counts {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	parts := make([]string, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		parts = append(parts, fmt.Sprintf("%s=%d", namespace, counts[namespace]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func countReportRulesForDir(report setup.YARAPreflightReport, dir string) int {
